@@ -45,7 +45,7 @@ body{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:1
 .card{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem}
 .card-title{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
 /* bar chart */
-.bchart{display:flex;gap:5px;align-items:flex-end;height:130px;margin-bottom:6px}
+.bchart{display:flex;gap:5px;align-items:flex-end;height:110px;margin-bottom:6px}
 .bcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;transition:opacity .15s}
 .bcol:hover{opacity:.75}
 .bbar{width:100%;border-radius:3px 3px 0 0;transition:all .2s}
@@ -118,7 +118,7 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: May 29, 2026 at 22:34 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: May 29, 2026 at 22:43 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
   </div>
 
@@ -283,29 +283,32 @@ function updateSelCard(){
 }
 
 function renderExpectedChart(){
-  const base=byStatus();
-  const mt=MONTHS.map((_,i)=>base.reduce((s,r)=>s+r[4][i],0));
+  const activeOnly=D.filter(r=>r[1]==="Active");
+  const mt=MONTHS.map((_,i)=>activeOnly.reduce((s,r)=>s+r[4][i],0));
   const yt=mt.reduce((a,v)=>a+v,0);
   const mx=Math.max(...mt,yt)||1;
   let html="";
   mt.forEach((v,i)=>{
     const sel=mi===i;
-    const h=Math.max(3,Math.round((v/mx)*110));
-    html+=`<div class="bcol" onclick="setMonth(${i})">
-      <span class="bval${sel?" sel":""}">${v>0?fmtS(v):"—"}</span>
-      <div class="bbar" style="height:${h}px;background:${sel?"var(--green)":"var(--gbar)"}"></div>
+    const h=Math.max(3,Math.round((v/mx)*100));
+    html+=`<div class="bcol" title="${MO_SHORT[i]+': '+fmtS(v)}" onclick="setMonth(${i})">
+      <div class="bbar" style="height:${h}px;background:${sel?"var(--green)":"var(--gbar)"}" title="${fmtS(v)}"></div>
       <span class="blbl${sel?" sel":""}">${MO_SHORT[i]}</span>
     </div>`;
   });
   const selYr=mi===-1;
-  const hYr=Math.max(3,Math.round((yt/mx)*110));
+  const hYr=Math.max(3,Math.round((yt/mx)*100));
   html+=`<div class="yr-div"></div>
-  <div class="bcol" onclick="setMonth(-1)">
-    <span class="bval${selYr?" sel":""}" style="${selYr?"color:var(--green)":""}">${fmtS(yt)}</span>
+  <div class="bcol" title="Year: ${fmtS(yt)}" onclick="setMonth(-1)">
     <div class="bbar" style="height:${hYr}px;background:${selYr?"var(--green)":"#B8DFA0"}"></div>
     <span class="blbl${selYr?" sel":""}">Year</span>
   </div>`;
   document.getElementById("barchart").innerHTML=html;
+  // Show selected value in card title
+  const selVal=mi===-1?fmtS(yt):(mt[mi]>0?fmtS(mt[mi]):"—");
+  document.querySelector('.card-title[style*=""]') ;
+  const chartTitle=document.querySelector("#barchart").previousElementSibling;
+  if(chartTitle) chartTitle.innerHTML='Expected cashflow — Jan to Dec 2026 <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;font-size:10px">(click month) &nbsp; <strong style="color:var(--green)">'+(mi===-1?"Year: "+fmtS(yt):MONTHS[mi]+": "+selVal)+'</strong></span>';
 }
 
 function updateCmpCard(){
