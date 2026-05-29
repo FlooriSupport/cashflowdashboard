@@ -4,12 +4,12 @@ Fetches live subscription data from Stripe and regenerates index.html.
 Runs via GitHub Actions every weekday at 9:30 AM BRT.
 All data comes directly from Stripe — no CSV dependencies.
 """
- 
+
 import os, json, stripe, calendar
 from datetime import datetime, timezone
- 
+
 stripe.api_key = os.environ["STRIPE_API_KEY"]
- 
+
 # ── Period definition: Jan–Dec 2026 ─────────────────────────────────────────
 PERIOD_MONTHS = [
     datetime(2026, m, 1, tzinfo=timezone.utc)
@@ -17,15 +17,15 @@ PERIOD_MONTHS = [
 ]
 PERIOD_START = PERIOD_MONTHS[0]   # Jan 1 2026
 PERIOD_END   = datetime(2027, 1, 1, tzinfo=timezone.utc)
- 
- 
+
+
 def _month_index(dt):
     """Return 0–11 for Jan–Dec 2026, or -1 if outside range."""
     if dt < PERIOD_START or dt >= PERIOD_END:
         return -1
     return dt.month - 1  # Jan=0 … Dec=11
- 
- 
+
+
 def _add_months(dt, n):
     """Add n months to a datetime, clamping to end of month."""
     m = dt.month - 1 + n
@@ -33,8 +33,8 @@ def _add_months(dt, n):
     month = m % 12 + 1
     day = min(dt.day, calendar.monthrange(year, month)[1])
     return dt.replace(year=year, month=month, day=day)
- 
- 
+
+
 def stripe_status_to_label(status):
     return {
         "active":             "Active",
@@ -46,8 +46,8 @@ def stripe_status_to_label(status):
         "incomplete_expired": "Cancelled",
         "paused":             "Cancelled",
     }.get(status, "Active")
- 
- 
+
+
 def fetch_all_subscriptions():
     subs = []
     params = {"limit": 100, "status": "all", "expand": ["data.customer"]}
@@ -58,8 +58,8 @@ def fetch_all_subscriptions():
             break
         params["starting_after"] = page.data[-1].id
     return subs
- 
- 
+
+
 def _compute_projections(sub_dict, amount_usd, interval):
     """
     Returns list of 8 floats (May–Dec 2026).
@@ -71,7 +71,7 @@ def _compute_projections(sub_dict, amount_usd, interval):
     proj = [0.0] * 12
     if amount_usd <= 0:
         return proj
- 
+
     items = sub_dict.get("items", {}).get("data", [])
     ts_end   = None
     ts_start = None
@@ -80,7 +80,7 @@ def _compute_projections(sub_dict, amount_usd, interval):
         ts_start = items[0].get("current_period_start")
     if not ts_end:
         ts_end = sub_dict.get("billing_cycle_anchor")
- 
+
     if interval == "Annual":
         # Try current_period_start first (sub was already billed within our window)
         placed = False
@@ -112,10 +112,10 @@ def _compute_projections(sub_dict, amount_usd, interval):
             if 0 <= mi <= 11:
                 proj[mi] = round(amount_usd, 2)
             dt = _add_months(dt, 1)
- 
+
     return proj
- 
- 
+
+
 def build_rows(subs):
     """
     Build one row per unique customer (by customer ID).
@@ -126,7 +126,7 @@ def build_rows(subs):
     # Group subscriptions by customer ID — keep most severe status
     priority = {"Past due": 3, "Unpaid": 2, "Cancelled": 1, "Active": 0}
     customers = {}  # cust_id → dict
- 
+
     for sub in subs:
         cust = sub.customer
         if isinstance(cust, str):
@@ -135,15 +135,15 @@ def build_rows(subs):
             cust_id = getattr(cust, "id", "") or ""
             name    = (getattr(cust, "name", "") or "").strip()
             email   = (getattr(cust, "email", "") or "").strip()
- 
+
         display = name or email or cust_id
         label   = stripe_status_to_label(sub.status)
- 
+
         try:
             sub_dict = sub.to_dict()
         except Exception:
             sub_dict = {}
- 
+
         items_data = sub_dict.get("items", {}).get("data", [])
         item = items_data[0] if items_data else {}
         price = item.get("price", {}) or {}
@@ -152,7 +152,7 @@ def build_rows(subs):
         rec      = (price.get("recurring") or {})
         interval = "Annual" if rec.get("interval") == "year" else "Monthly"
         amount_usd = round(amount / 100, 2) if currency == "usd" else 0.0
- 
+
         # Next invoice date
         next_inv = ""
         try:
@@ -165,9 +165,9 @@ def build_rows(subs):
                 next_inv = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d, %Y")
         except Exception:
             pass
- 
+
         proj = _compute_projections(sub_dict, amount_usd, interval)
- 
+
         if cust_id not in customers:
             customers[cust_id] = {
                 "name":       display,
@@ -186,7 +186,7 @@ def build_rows(subs):
             # Sum projections (customer may have multiple subs)
             ex["proj"]       = [round(a + b, 2) for a, b in zip(ex["proj"], proj)]
             ex["amount_usd"] = round(ex["amount_usd"] + amount_usd, 2)
- 
+
     rows = []
     for info in customers.values():
         rows.append([
@@ -197,11 +197,11 @@ def build_rows(subs):
             info["proj"],
             info["next_inv"],
         ])
- 
+
     rows.sort(key=lambda r: r[3], reverse=True)
     return rows
- 
- 
+
+
 def compute_totals(rows):
     totals  = [0.0] * 12
     active  = [0.0] * 12
@@ -218,15 +218,15 @@ def compute_totals(rows):
         [round(x, 2) for x in active],
         [round(x, 2) for x in problem],
     )
- 
- 
+
+
 def compute_subscription_metrics(subs):
     """MRR/ARR from active USD subscriptions."""
     monthly_mrr = 0.0
     annual_arr  = 0.0
     monthly_count = 0
     annual_count  = 0
- 
+
     for sub in subs:
         if stripe_status_to_label(sub.status) != "Active":
             continue
@@ -249,7 +249,7 @@ def compute_subscription_metrics(subs):
                 monthly_count += 1
         except Exception:
             continue
- 
+
     return {
         "monthly_mrr":   round(monthly_mrr, 2),
         "annual_arr":    round(annual_arr, 2),
@@ -258,8 +258,8 @@ def compute_subscription_metrics(subs):
         "monthly_count": monthly_count,
         "annual_count":  annual_count,
     }
- 
- 
+
+
 def fetch_today_invoices(subs):
     """Fetch invoices paid in last 24h via Invoice.list, with USD conversion via balance_transaction."""
     import time
@@ -276,8 +276,8 @@ def fetch_today_invoices(subs):
             page = stripe.Invoice.list(**params)
             for inv in page.data:
                 try:
+                    amount = _usd_from_invoice_obj(inv)
                     d      = inv.to_dict()
-                    amount = _usd_amount_from_invoice(d)
                     ts     = d.get("status_transitions", {}).get("paid_at") or d.get("created") or 0
                     cname  = d.get("customer_name") or d.get("customer_email") or "Unknown"
                     time_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%H:%M UTC") if ts else ""
@@ -292,27 +292,39 @@ def fetch_today_invoices(subs):
         print(f"  Warning: could not fetch today's invoices: {e}")
     results.sort(key=lambda x: x["time"], reverse=True)
     return results
- 
- 
+
+
+def _usd_from_invoice_obj(inv):
+    """
+    Extract USD amount from a Stripe Invoice OBJECT (not dict).
+    Accesses balance_transaction directly on the expanded object.
+    Falls back to amount_paid if balance_transaction not available.
+    """
+    try:
+        charge = getattr(inv, "charge", None)
+        if charge and not isinstance(charge, str):
+            bt = getattr(charge, "balance_transaction", None)
+            if bt and not isinstance(bt, str):
+                amt = getattr(bt, "amount", None)
+                if amt and abs(amt) > 0:
+                    return round(abs(amt) / 100, 2)
+    except Exception:
+        pass
+    return round((getattr(inv, "amount_paid", None) or 0) / 100, 2)
+
+
 def _usd_amount_from_invoice(d):
-    """
-    Extract USD amount from a Stripe invoice dict.
-    Uses balance_transaction.amount (actual USD received) when available.
-    Falls back to amount_paid for USD invoices, or amount_paid as-is for others.
-    """
-    # Try balance transaction first (actual USD settled amount)
+    """Legacy: extract USD from a dict. Only used as fallback."""
     charge = d.get("charge", {}) or {}
     if isinstance(charge, dict):
         bt = charge.get("balance_transaction", {}) or {}
         if isinstance(bt, dict) and bt.get("amount"):
-            # bt.amount is in account currency (USD), in cents
             net = abs(bt.get("amount", 0))
             if net > 0:
                 return round(net / 100, 2)
-    # Fallback: use amount_paid directly
     return round((d.get("amount_paid") or 0) / 100, 2)
- 
- 
+
+
 def fetch_monthly_collected():
     """
     Fetch all paid invoices from Jan–Dec 2026 and return collected USD amounts per month.
@@ -333,8 +345,8 @@ def fetch_monthly_collected():
             page = stripe.Invoice.list(**params)
             for inv in page.data:
                 try:
+                    amount = _usd_from_invoice_obj(inv)
                     d      = inv.to_dict()
-                    amount = _usd_amount_from_invoice(d)
                     ts     = d.get("status_transitions", {}).get("paid_at") or d.get("created") or 0
                     if amount > 0 and ts:
                         dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
@@ -349,10 +361,10 @@ def fetch_monthly_collected():
     except Exception as e:
         print(f"  Warning: could not fetch monthly collected: {e}")
     return collected
- 
- 
- 
- 
+
+
+
+
 def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected):
     rows_js          = json.dumps(rows, ensure_ascii=False)
     totals_js        = json.dumps(totals)
@@ -385,7 +397,7 @@ def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_in
       </table>
     </div>
   </div>"""
- 
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -502,14 +514,14 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
 </head>
 <body>
 <div class="wrap">
- 
+
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
       <p class="synced">Last synced: {synced} · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
   </div>
- 
+
   <div class="metrics">
     <div class="mc">
       <div class="lbl">Total MRR</div>
@@ -532,7 +544,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
       <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · USD equiv.</div>
     </div>
   </div>
- 
+
   <div class="charts-row">
     <!-- Card 1: Full year expected (clickable to select month) -->
     <div class="card">
@@ -564,7 +576,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
       <div class="cmp-diff" id="cmp-diff"></div>
     </div>
   </div>
- 
+
   <div class="row2">
     <div class="card">
       <div class="card-title" id="sel-title">Selected period</div>
@@ -577,7 +589,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
       {"<div class='inv-wrap'><table class='inv-table'><thead><tr><th>Customer</th><th class='r'>Amount</th><th>Time</th></tr></thead><tbody>" + today_rows_html + "</tbody></table></div>" if today_invoices else "<div class='empty'>No payments in the last 24h</div>"}
     </div>
   </div>
- 
+
   <div class="tbl-section">
     <div class="tbl-header">
       <div class="card-title" id="tbl-title" style="margin-bottom:0">All customers</div>
@@ -610,7 +622,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
       <span id="ct-lbl"></span>
     </div>
   </div>
- 
+
 </div>
 <script>
 const MONTHS=["Jan 2026","Feb 2026","Mar 2026","Apr 2026","May 2026","Jun 2026","Jul 2026","Aug 2026","Sep 2026","Oct 2026","Nov 2026","Dec 2026"];
@@ -620,18 +632,18 @@ const COLLECTED={collected_js};
 const BC={{"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"}};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{{style:"currency",currency:"USD",maximumFractionDigits:0}}).format(Math.abs(v));
 const fmtS=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
- 
+
 let mi=4,pg=1,sf="all"; // mi: 0-11=Jan-Dec, -1=Year; default May (index 4)
 const PS=15;
- 
+
 function byStatus(){{
   const f=sf;
   return D.filter(r=>f==="all"||(f==="Active"&&r[1]==="Active")||(f==="problem"&&(r[1]==="Past due"||r[1]==="Unpaid")));
 }}
- 
+
 function prevMonth(){{if(mi>0)setMonth(mi-1);else if(mi===-1)setMonth(11);}}
 function nextMonth(){{if(mi<11)setMonth(mi+1);else setMonth(-1);}}
- 
+
 function setMonth(i){{
   mi=i;
   const isYr=mi===-1;
@@ -643,7 +655,7 @@ function setMonth(i){{
   document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
   updateAll();
 }}
- 
+
 function updateAll(){{
   sf=document.getElementById("flt").value;
   updateSelCard();
@@ -651,7 +663,7 @@ function updateAll(){{
   updateCmpCard();
   pg=1; _render();
 }}
- 
+
 function updateSelCard(){{
   const all=D;
   const problems=all.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
@@ -669,7 +681,7 @@ function updateSelCard(){{
   document.getElementById("sel-active-count").textContent=activeCount+" customers";
   document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
 }}
- 
+
 const TODAY_MI=4; // May 2026 = index 4; update each new year
 function expectedForMonth(i){{
   // Past/current months: all subs (they were expected to bill then)
@@ -704,7 +716,7 @@ function renderExpectedChart(){{
   const chartTitle=document.querySelector("#barchart").previousElementSibling;
   if(chartTitle) chartTitle.innerHTML='Expected cashflow — Jan to Dec 2026 <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;font-size:10px">(click month) &nbsp; <strong style="color:var(--green)">'+(mi===-1?"Year: "+fmtS(yt):MONTHS[mi]+": "+selVal)+'</strong></span>';
 }}
- 
+
 function updateCmpCard(){{
   const isYr=mi===-1;
   let exp,col;
@@ -734,14 +746,14 @@ function updateCmpCard(){{
     diffEl.style.background="var(--red-bg)";
   }}
 }}
- 
+
 function getFiltered(){{
   const q=document.getElementById("search").value.toLowerCase();
   const base=byStatus();
   const byM=mi>=0?base.filter(r=>r[4][mi]>0):base;
   return byM.filter(r=>!q||r[0].toLowerCase().includes(q));
 }}
- 
+
 function renderTable(){{pg=1;_render();}}
 function go(d){{const tp=Math.ceil(getFiltered().length/PS);pg=Math.max(1,Math.min(tp,pg+d));_render();}}
 function _render(){{
@@ -763,39 +775,39 @@ function _render(){{
     </tr>`;
   }}).join("");
 }}
- 
+
 setMonth(4); // default: May 2026
 </script>
 </body>
 </html>"""
- 
+
 if __name__ == "__main__":
     print("Fetching subscriptions from Stripe...")
     subs = fetch_all_subscriptions()
     print(f"  {len(subs)} subscriptions fetched")
- 
+
     print("Building rows from Stripe data...")
     rows = build_rows(subs)
     print(f"  {len(rows)} unique customers")
- 
+
     totals, active_tot, problem_tot = compute_totals(rows)
- 
+
     print("Computing subscription metrics...")
     metrics = compute_subscription_metrics(subs)
     print(f"  MRR: ${metrics['total_mrr']:,.0f} (monthly ${metrics['monthly_mrr']:,.0f} + annual equiv. ${metrics['annual_mrr']:,.0f})")
- 
+
     print("Fetching today's invoices...")
     today_invoices = fetch_today_invoices(subs)
     print(f"  {len(today_invoices)} invoice(s) paid in last 24h")
- 
+
     print("Fetching monthly collected amounts...")
     monthly_collected = fetch_monthly_collected()
     print(f"  Collected by month: {[round(x) for x in monthly_collected]}")
- 
+
     synced = datetime.now(timezone.utc).strftime("%b %d, %Y at %H:%M UTC")
     html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected)
- 
+
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(html)
- 
+
     print(f"  index.html written — {len(rows)} customers, synced {synced}")
