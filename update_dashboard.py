@@ -246,10 +246,16 @@ def build_customer_map(subs):
         next_invoice_str = ""
         try:
             sub_dict = sub.to_dict()
+            # DEBUG: print first sub's keys and current_period_end value once
+            if not result:
+                print(f"DEBUG sub keys: {list(sub_dict.keys())}")
+                print(f"DEBUG current_period_end raw: {sub_dict.get('current_period_end')!r}")
             ts = sub_dict.get("current_period_end")
             if ts:
                 next_invoice_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d, %Y")
-        except Exception:
+        except Exception as e:
+            if not result:
+                print(f"DEBUG to_dict() error: {e}")
             next_invoice_str = ""
 
         # consolidate multiple subs per email — keep most severe status
