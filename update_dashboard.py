@@ -340,14 +340,32 @@ def build_rows(customer_map):
     rows = []
     seen_names = set()
 
+    # Pre-build: Stripe display name → CSV key (for projection lookup + dedup)
+    stripe_to_csv = {}
+    for csv_name in MONTHLY_PROJECTIONS:
+        csv_norm = _normalize(csv_name)
+        # exact normalized match
+        if csv_norm in by_name:
+            stripe_to_csv[by_name[csv_norm]["name"]] = csv_name
+        else:
+            # prefix match
+            if len(csv_norm) >= 10:
+                for stripe_norm, info in by_name.items():
+                    if len(stripe_norm) >= 10:
+                        if stripe_norm.startswith(csv_norm) or csv_norm.startswith(stripe_norm):
+                            stripe_to_csv[info["name"]] = csv_name
+                            break
+
     for email, info in by_email.items():
-        name = info["name"]
-        if not name or name in seen_names:
+        stripe_name = info["name"]
+        # Use CSV name if mapped, otherwise Stripe name
+        display_name = stripe_to_csv.get(stripe_name, stripe_name)
+        if not display_name or display_name in seen_names:
             continue
-        seen_names.add(name)
-        proj = MONTHLY_PROJECTIONS.get(name, [0,0,0,0,0,0,0,0])
+        seen_names.add(display_name)
+        proj = MONTHLY_PROJECTIONS.get(display_name, [0,0,0,0,0,0,0,0])
         rows.append([
-            name,
+            display_name,
             info["status"],
             info["interval"],
             round(info["amount"] / 100) if info["currency"] == "usd" else 0,
@@ -355,7 +373,7 @@ def build_rows(customer_map):
             info.get("next_invoice", ""),
         ])
 
-    # CSV names not matched by email — try fuzzy name lookup
+    # CSV names not yet covered by email loop — fuzzy match or fallback
     for csv_name in MONTHLY_PROJECTIONS:
         if csv_name in seen_names:
             continue
