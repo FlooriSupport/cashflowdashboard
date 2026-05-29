@@ -64,30 +64,43 @@ def _compute_projections(sub_dict, amount_usd, interval):
     """
     Returns list of 8 floats (May–Dec 2026).
     Monthly subs: projected for each month their billing date falls in window.
-    Annual subs:  projected only for their renewal month if in window.
+    Annual subs:  projected for the renewal month within the window.
+                  Checks both current_period_start (already billed this year)
+                  and current_period_end (next renewal), whichever is in window.
     """
     proj = [0.0] * 8
     if amount_usd <= 0:
         return proj
 
     items = sub_dict.get("items", {}).get("data", [])
-    ts = None
+    ts_end   = None
+    ts_start = None
     if items:
-        ts = items[0].get("current_period_end")
-    if not ts:
-        ts = sub_dict.get("billing_cycle_anchor")
-    if not ts:
-        return proj
-
-    next_renewal = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+        ts_end   = items[0].get("current_period_end")
+        ts_start = items[0].get("current_period_start")
+    if not ts_end:
+        ts_end = sub_dict.get("billing_cycle_anchor")
 
     if interval == "Annual":
-        mi = _month_index(next_renewal)
-        if 0 <= mi <= 7:
-            proj[mi] = round(amount_usd, 2)
+        # Try current_period_start first (sub was already billed within our window)
+        placed = False
+        if ts_start:
+            dt_start = datetime.fromtimestamp(int(ts_start), tz=timezone.utc)
+            mi = _month_index(dt_start)
+            if 0 <= mi <= 7:
+                proj[mi] = round(amount_usd, 2)
+                placed = True
+        # Fallback: next renewal (current_period_end) within our window
+        if not placed and ts_end:
+            dt_end = datetime.fromtimestamp(int(ts_end), tz=timezone.utc)
+            mi = _month_index(dt_end)
+            if 0 <= mi <= 7:
+                proj[mi] = round(amount_usd, 2)
     else:
+        if not ts_end:
+            return proj
         # Monthly: advance until first billing date within window
-        dt = next_renewal
+        dt = datetime.fromtimestamp(int(ts_end), tz=timezone.utc)
         while dt < PERIOD_START:
             dt = _add_months(dt, 1)
         while dt < PERIOD_END:
@@ -287,7 +300,7 @@ def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_in
     deductions_js    = json.dumps([-2616.45, 0, 0, 0, 0, 0, 0, 0])
     metrics_js       = json.dumps(metrics)
     today_js         = json.dumps(today_invoices, ensure_ascii=False)
-    today_total      = sum(i["amount"] for i in today_invoices if i["currency"] == "USD")
+    today_total      = sum(i["amount"] for i in today_invoices)
     today_count      = len(today_invoices)
     today_total_fmt  = f"${today_total:,.0f}" if today_total else "$0"
     today_rows_html  = "".join(
@@ -371,16 +384,16 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .chart-card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem;margin-bottom:1.5rem}}
 .chart-card .ct{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}}
 .chart-card .ct span{{font-size:12px;color:var(--text2);font-weight:400;text-transform:none;letter-spacing:0}}
-.bar-chart{{display:flex;gap:6px;align-items:flex-end;height:120px}}
+.bar-chart{{display:flex;gap:6px;align-items:flex-end;height:140px}}
 .bc-col{{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;transition:opacity .15s}}
 .bc-col:hover{{opacity:.8}}
-.bc-val{{font-size:9px;white-space:nowrap;color:var(--text3);transition:color .2s}}
-.bc-val.sel{{color:var(--green);font-weight:600}}
-.bc-val.sel-yr{{color:var(--blue);font-weight:600}}
+.bc-val{{font-size:11px;white-space:nowrap;color:var(--text2);transition:color .2s;font-variant-numeric:tabular-nums}}
+.bc-val.sel{{color:var(--green);font-weight:700}}
+.bc-val.sel-yr{{color:var(--blue);font-weight:700}}
 .bc-bar{{width:100%;border-radius:3px 3px 0 0;transition:background .2s}}
-.bc-lbl{{font-size:10px;color:var(--text3);transition:color .2s}}
-.bc-lbl.sel{{color:var(--green);font-weight:500}}
-.bc-lbl.sel-yr{{color:var(--blue);font-weight:500}}
+.bc-lbl{{font-size:11px;color:var(--text2);transition:color .2s;font-weight:500}}
+.bc-lbl.sel{{color:var(--green);font-weight:700}}
+.bc-lbl.sel-yr{{color:var(--blue);font-weight:700}}
 .yr-divider{{width:1px;background:var(--border);margin:0 2px;align-self:stretch}}
 
 /* 2-col */
@@ -466,7 +479,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
     <div class="mc">
       <div class="lbl">Collected today</div>
       <div class="val" style="color:{'var(--green)' if today_total>0 else 'var(--text3)'}">{today_total_fmt}</div>
-      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} in last 24h</div>
+      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · amounts as billed</div>
     </div>
   </div>
 
@@ -590,7 +603,7 @@ function renderChart(){{
   const mx=Math.max(...mt,yt)||1;
   let html="";
   mt.forEach((v,i)=>{{
-    const sel=mi===i,h=Math.max(4,Math.round((v/mx)*100));
+    const sel=mi===i,h=Math.max(4,Math.round((v/mx)*110));
     const bg=sel?"var(--green-bar)":"var(--bg2)";
     html+=`<div class="bc-col" onclick="setMonth(${{i}})">
       <span class="bc-val${{sel?" sel":""}}">${{v>0?fmtS(v):"—"}}</span>
@@ -598,7 +611,7 @@ function renderChart(){{
       <span class="bc-lbl${{sel?" sel":""}}">${{MO_SHORT[i]}}</span>
     </div>`;
   }});
-  const selYr=mi===-1,hYr=Math.max(4,Math.round((yt/mx)*100));
+  const selYr=mi===-1,hYr=Math.max(4,Math.round((yt/mx)*110));
   html+=`<div class="yr-divider"></div>
   <div class="bc-col" onclick="setMonth(-1)">
     <span class="bc-val${{selYr?" sel-yr":""}}">${{fmtS(yt)}}</span>
