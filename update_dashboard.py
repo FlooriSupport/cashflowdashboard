@@ -242,20 +242,34 @@ def build_customer_map(subs):
 
         label = stripe_status_to_label(sub.status)
 
-        # next invoice date — use to_dict() for Stripe SDK v5+ compatibility
+        # next invoice date
         next_invoice_str = ""
         try:
             sub_dict = sub.to_dict()
-            # DEBUG: print first sub's keys and current_period_end value once
+            # DEBUG: inspect structure once
             if not result:
-                print(f"DEBUG sub keys: {list(sub_dict.keys())}")
-                print(f"DEBUG current_period_end raw: {sub_dict.get('current_period_end')!r}")
-            ts = sub_dict.get("current_period_end")
+                items_data = sub_dict.get("items", {}).get("data", [])
+                first_item = items_data[0] if items_data else {}
+                print(f"DEBUG item keys: {list(first_item.keys())}")
+                print(f"DEBUG billing_cycle_anchor: {sub_dict.get('billing_cycle_anchor')!r}")
+                # try known locations
+                print(f"DEBUG item.current_period_end: {first_item.get('current_period_end')!r}")
+                bp = first_item.get("billing_period") or first_item.get("billing_details") or {}
+                print(f"DEBUG item.billing_period/details: {bp!r}")
+            ts = None
+            items_data = sub_dict.get("items", {}).get("data", [])
+            if items_data:
+                first_item = items_data[0]
+                ts = (first_item.get("current_period_end")
+                      or (first_item.get("billing_period") or {}).get("end")
+                      or (first_item.get("billing_details") or {}).get("current_period_end"))
+            if not ts:
+                ts = sub_dict.get("billing_cycle_anchor")
             if ts:
                 next_invoice_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d, %Y")
         except Exception as e:
             if not result:
-                print(f"DEBUG to_dict() error: {e}")
+                print(f"DEBUG error: {e}")
             next_invoice_str = ""
 
         # consolidate multiple subs per email — keep most severe status
