@@ -392,7 +392,17 @@ def build_rows(customer_map):
             rows.append([csv_name, "Active", "Annual", 0, MONTHLY_PROJECTIONS[csv_name], ""])
 
     rows.sort(key=lambda r: r[3], reverse=True)
-    return rows
+
+    # Final dedup: if two rows normalize to the same name, keep the one with higher base amount
+    seen_norm = set()
+    deduped = []
+    for row in rows:
+        norm = _normalize(row[0])
+        if norm not in seen_norm:
+            seen_norm.add(norm)
+            deduped.append(row)
+
+    return deduped
 
 
 def compute_totals(rows):
