@@ -242,12 +242,19 @@ def build_customer_map(subs):
 
         label = stripe_status_to_label(sub.status)
 
-        # next invoice date from current_period_end
-        next_invoice = getattr(sub, "current_period_end", None)
+        # next invoice date — try multiple access patterns for Stripe SDK compatibility
         next_invoice_str = ""
-        if next_invoice:
-            from datetime import datetime, timezone
-            next_invoice_str = datetime.fromtimestamp(next_invoice, tz=timezone.utc).strftime("%b %d, %Y")
+        try:
+            ts = sub.current_period_end
+            if ts:
+                next_invoice_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d, %Y")
+        except Exception:
+            try:
+                ts = sub["current_period_end"]
+                if ts:
+                    next_invoice_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d, %Y")
+            except Exception:
+                next_invoice_str = ""
 
         # consolidate multiple subs per email — keep most severe status
         priority = {"Past due": 3, "Unpaid": 2, "Cancelled": 1, "Active": 0}
@@ -646,6 +653,8 @@ if __name__ == "__main__":
     print(f"  {len(subs)} subscriptions fetched")
 
     customer_map = build_customer_map(subs)
+    dated = sum(1 for v in customer_map.values() if v.get("next_invoice"))
+    print(f"  {dated}/{len(customer_map)} customers have a next invoice date")
     rows = build_rows(customer_map)
     totals, active_tot, problem_tot = compute_totals(rows)
 
