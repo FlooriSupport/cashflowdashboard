@@ -261,34 +261,26 @@ def compute_subscription_metrics(subs):
 
 
 def fetch_today_invoices(subs):
-    """Fetch invoice.payment_succeeded events in last 24h."""
+    """Fetch invoices paid in last 24h via Invoice.list, with USD conversion via balance_transaction."""
     import time
     since = int(time.time()) - 86400
     results = []
     try:
         params = {
-            "type":    "invoice.payment_succeeded",
-            "limit":   100,
-            "created": {"gte": since},
+            "status":   "paid",
+            "created":  {"gte": since},
+            "limit":    100,
+            "expand":   ["data.charge.balance_transaction"],
         }
         while True:
-            page = stripe.Event.list(**params)
-            for event in page.data:
+            page = stripe.Invoice.list(**params)
+            for inv in page.data:
                 try:
-                    event_d  = event.to_dict()
-                    inv_dict = event_d.get("data", {}).get("object", {})
-                    # Use balance_transaction if available for USD conversion
-                    charge_obj = inv_dict.get("charge", {}) or {}
-                    bt = {}
-                    if isinstance(charge_obj, dict):
-                        bt = charge_obj.get("balance_transaction", {}) or {}
-                    if isinstance(bt, dict) and bt.get("amount"):
-                        amount = abs(bt.get("amount", 0)) / 100
-                    else:
-                        amount = (inv_dict.get("amount_paid") or 0) / 100
-                    created  = event.to_dict().get("created", 0)
-                    time_str = datetime.fromtimestamp(int(created), tz=timezone.utc).strftime("%H:%M UTC") if created else ""
-                    cname    = inv_dict.get("customer_name") or inv_dict.get("customer_email") or "Unknown"
+                    d      = inv.to_dict()
+                    amount = _usd_amount_from_invoice(d)
+                    ts     = d.get("status_transitions", {}).get("paid_at") or d.get("created") or 0
+                    cname  = d.get("customer_name") or d.get("customer_email") or "Unknown"
+                    time_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%H:%M UTC") if ts else ""
                     if amount > 0:
                         results.append({"name": cname, "amount": amount, "time": time_str})
                 except Exception:
@@ -335,7 +327,7 @@ def fetch_monthly_collected():
             "status":   "paid",
             "created":  {"gte": start_ts, "lte": end_ts},
             "limit":    100,
-            "expand[]": "data.charge.balance_transaction",
+            "expand": ["data.charge.balance_transaction"],
         }
         while True:
             page = stripe.Invoice.list(**params)
@@ -441,7 +433,7 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem}}
 .card-title{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}}
 /* bar chart */
-.bchart{{display:flex;gap:5px;align-items:flex-end;height:130px;margin-bottom:6px}}
+.bchart{{display:flex;gap:5px;align-items:flex-end;height:110px;margin-bottom:6px}}
 .bcol{{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;transition:opacity .15s}}
 .bcol:hover{{opacity:.75}}
 .bbar{{width:100%;border-radius:3px 3px 0 0;transition:all .2s}}
@@ -679,29 +671,32 @@ function updateSelCard(){{
 }}
 
 function renderExpectedChart(){{
-  const base=byStatus();
-  const mt=MONTHS.map((_,i)=>base.reduce((s,r)=>s+r[4][i],0));
+  const activeOnly=D.filter(r=>r[1]==="Active");
+  const mt=MONTHS.map((_,i)=>activeOnly.reduce((s,r)=>s+r[4][i],0));
   const yt=mt.reduce((a,v)=>a+v,0);
   const mx=Math.max(...mt,yt)||1;
   let html="";
   mt.forEach((v,i)=>{{
     const sel=mi===i;
-    const h=Math.max(3,Math.round((v/mx)*110));
-    html+=`<div class="bcol" onclick="setMonth(${{i}})">
-      <span class="bval${{sel?" sel":""}}">${{v>0?fmtS(v):"—"}}</span>
-      <div class="bbar" style="height:${{h}}px;background:${{sel?"var(--green)":"var(--gbar)"}}"></div>
+    const h=Math.max(3,Math.round((v/mx)*100));
+    html+=`<div class="bcol" title="${{MO_SHORT[i]+': '+fmtS(v)}}" onclick="setMonth(${{i}})">
+      <div class="bbar" style="height:${{h}}px;background:${{sel?"var(--green)":"var(--gbar)"}}" title="${{fmtS(v)}}"></div>
       <span class="blbl${{sel?" sel":""}}">${{MO_SHORT[i]}}</span>
     </div>`;
   }});
   const selYr=mi===-1;
-  const hYr=Math.max(3,Math.round((yt/mx)*110));
+  const hYr=Math.max(3,Math.round((yt/mx)*100));
   html+=`<div class="yr-div"></div>
-  <div class="bcol" onclick="setMonth(-1)">
-    <span class="bval${{selYr?" sel":""}}" style="${{selYr?"color:var(--green)":""}}">${{fmtS(yt)}}</span>
+  <div class="bcol" title="Year: ${{fmtS(yt)}}" onclick="setMonth(-1)">
     <div class="bbar" style="height:${{hYr}}px;background:${{selYr?"var(--green)":"#B8DFA0"}}"></div>
     <span class="blbl${{selYr?" sel":""}}">Year</span>
   </div>`;
   document.getElementById("barchart").innerHTML=html;
+  // Show selected value in card title
+  const selVal=mi===-1?fmtS(yt):(mt[mi]>0?fmtS(mt[mi]):"—");
+  document.querySelector('.card-title[style*=""]') ;
+  const chartTitle=document.querySelector("#barchart").previousElementSibling;
+  if(chartTitle) chartTitle.innerHTML='Expected cashflow — Jan to Dec 2026 <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;font-size:10px">(click month) &nbsp; <strong style="color:var(--green)">'+(mi===-1?"Year: "+fmtS(yt):MONTHS[mi]+": "+selVal)+'</strong></span>';
 }}
 
 function updateCmpCard(){{
