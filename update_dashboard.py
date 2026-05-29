@@ -282,7 +282,7 @@ def build_customer_map(subs):
 
         # index by normalized name
         if name:
-            nname = name.strip().lower()
+            nname = _normalize(name)
             if nname not in by_name:
                 by_name[nname] = info
             else:
@@ -295,7 +295,46 @@ def build_customer_map(subs):
     return by_email, by_name
 
 
-def build_rows(customer_map):
+# Legal suffixes to strip before name comparison
+_LEGAL_SUFFIXES = [
+    " ltda", " ltda.", " s.a.", " s.a", " sa", " s/a", " inc", " inc.",
+    " llc", " llc.", " ltd", " ltd.", " pty ltd", " pty", " gmbh",
+    " s.r.l", " s.r.l.", " srl", " s.l.", " sl", " bv", " b.v.",
+    " nv", " ag", " corp", " corp.", " co.", " co", " company",
+    " group", " holdings", " cias", " cia", " & cia",
+]
+
+def _normalize(name: str) -> str:
+    """Lowercase, strip legal suffixes and extra whitespace."""
+    n = name.strip().lower()
+    for sfx in _LEGAL_SUFFIXES:
+        if n.endswith(sfx):
+            n = n[: -len(sfx)].strip()
+            break
+    return n
+
+def _fuzzy_match(csv_name: str, by_name: dict):
+    """
+    Try to find csv_name in by_name using progressively looser matching:
+    1. Exact normalized match
+    2. Stripe name starts with CSV name (or vice-versa), min 10 chars
+    """
+    csv_norm = _normalize(csv_name)
+
+    # 1. exact after normalization
+    if csv_norm in by_name:
+        return by_name[csv_norm]
+
+    # 2. prefix match — one starts with the other
+    if len(csv_norm) >= 10:
+        for stripe_norm, info in by_name.items():
+            if stripe_norm.startswith(csv_norm) or csv_norm.startswith(stripe_norm):
+                if len(stripe_norm) >= 10:
+                    return info
+
+    return None
+
+
     by_email, by_name = customer_map
     rows = []
     seen_names = set()
@@ -315,12 +354,12 @@ def build_rows(customer_map):
             info.get("next_invoice", ""),
         ])
 
-    # CSV names not matched by email — try name-based lookup first
+    # CSV names not matched by email — try fuzzy name lookup
     for csv_name in MONTHLY_PROJECTIONS:
         if csv_name in seen_names:
             continue
         seen_names.add(csv_name)
-        stripe_info = by_name.get(csv_name.strip().lower())
+        stripe_info = _fuzzy_match(csv_name, by_name)
         if stripe_info:
             rows.append([
                 csv_name,
