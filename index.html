@@ -114,14 +114,14 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
 </head>
 <body>
 <div class="wrap">
-
+ 
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: May 29, 2026 at 22:49 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: May 29, 2026 at 22:54 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
   </div>
-
+ 
   <div class="metrics">
     <div class="mc">
       <div class="lbl">Total MRR</div>
@@ -144,7 +144,7 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
       <div class="sub">2 payments · USD equiv.</div>
     </div>
   </div>
-
+ 
   <div class="charts-row">
     <!-- Card 1: Full year expected (clickable to select month) -->
     <div class="card">
@@ -176,7 +176,7 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
       <div class="cmp-diff" id="cmp-diff"></div>
     </div>
   </div>
-
+ 
   <div class="row2">
     <div class="card">
       <div class="card-title" id="sel-title">Selected period</div>
@@ -189,7 +189,7 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
       <div class='inv-wrap'><table class='inv-table'><thead><tr><th>Customer</th><th class='r'>Amount</th><th>Time</th></tr></thead><tbody><tr style="border-bottom:0.5px solid var(--border2)"><td style="padding:9px 12px;font-weight:500">Pravada</td><td style="padding:9px 12px;text-align:right;font-variant-numeric:tabular-nums">$599.00</td><td style="padding:9px 12px;color:var(--text2);font-size:12px">15:27 UTC</td></tr><tr style="border-bottom:0.5px solid var(--border2)"><td style="padding:9px 12px;font-weight:500">Alfombras Hamid</td><td style="padding:9px 12px;text-align:right;font-variant-numeric:tabular-nums">$50.00</td><td style="padding:9px 12px;color:var(--text2);font-size:12px">12:33 UTC</td></tr></tbody></table></div>
     </div>
   </div>
-
+ 
   <div class="tbl-section">
     <div class="tbl-header">
       <div class="card-title" id="tbl-title" style="margin-bottom:0">All customers</div>
@@ -222,7 +222,7 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
       <span id="ct-lbl"></span>
     </div>
   </div>
-
+ 
 </div>
 <script>
 const MONTHS=["Jan 2026","Feb 2026","Mar 2026","Apr 2026","May 2026","Jun 2026","Jul 2026","Aug 2026","Sep 2026","Oct 2026","Nov 2026","Dec 2026"];
@@ -232,18 +232,18 @@ const COLLECTED=[35871.39, 33161.14, 34019.39, 29835.64, 35311.31, 0.0, 0.0, 0.0
 const BC={"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(Math.abs(v));
 const fmtS=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
-
+ 
 let mi=4,pg=1,sf="all"; // mi: 0-11=Jan-Dec, -1=Year; default May (index 4)
 const PS=15;
-
+ 
 function byStatus(){
   const f=sf;
   return D.filter(r=>f==="all"||(f==="Active"&&r[1]==="Active")||(f==="problem"&&(r[1]==="Past due"||r[1]==="Unpaid")));
 }
-
+ 
 function prevMonth(){if(mi>0)setMonth(mi-1);else if(mi===-1)setMonth(11);}
 function nextMonth(){if(mi<11)setMonth(mi+1);else setMonth(-1);}
-
+ 
 function setMonth(i){
   mi=i;
   const isYr=mi===-1;
@@ -255,7 +255,7 @@ function setMonth(i){
   document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
   updateAll();
 }
-
+ 
 function updateAll(){
   sf=document.getElementById("flt").value;
   updateSelCard();
@@ -263,28 +263,34 @@ function updateAll(){
   updateCmpCard();
   pg=1; _render();
 }
-
+ 
 function updateSelCard(){
   const all=D;
   const problems=all.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
   let expected,activeCount,problemAmt;
   if(mi===-1){
-    expected=all.filter(r=>r[1]==="Active").reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
-    activeCount=all.filter(r=>r[1]==="Active"&&r[4].some(v=>v>0)).length;
+    expected=MONTHS.reduce((s,_,i)=>s+expectedForMonth(i),0);
+    activeCount=D.filter(r=>r[1]==="Active"&&r[4].some(v=>v>0)).length;
     problemAmt=problems.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
   }else{
-    expected=all.filter(r=>r[1]==="Active").reduce((s,r)=>s+r[4][mi],0);
-    activeCount=all.filter(r=>r[1]==="Active"&&r[4][mi]>0).length;
+    expected=expectedForMonth(mi);
+    activeCount=D.filter(r=>r[1]==="Active"&&r[4][mi]>0).length;
     problemAmt=problems.reduce((s,r)=>s+r[4][mi],0);
   }
   document.getElementById("sel-expected").textContent=expected>0?fmt(expected):"—";
   document.getElementById("sel-active-count").textContent=activeCount+" customers";
   document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
 }
-
+ 
+const TODAY_MI=4; // May 2026 = index 4; update each new year
+function expectedForMonth(i){
+  // Past/current months: all subs (they were expected to bill then)
+  // Future months: active only (what we can realistically expect)
+  const subs=i<=TODAY_MI?D:D.filter(r=>r[1]==="Active");
+  return subs.reduce((s,r)=>s+r[4][i],0);
+}
 function renderExpectedChart(){
-  const activeOnly=D.filter(r=>r[1]==="Active");
-  const mt=MONTHS.map((_,i)=>activeOnly.reduce((s,r)=>s+r[4][i],0));
+  const mt=MONTHS.map((_,i)=>expectedForMonth(i));
   const yt=mt.reduce((a,v)=>a+v,0);
   const mx=Math.max(...mt,yt)||1;
   let html="";
@@ -310,16 +316,15 @@ function renderExpectedChart(){
   const chartTitle=document.querySelector("#barchart").previousElementSibling;
   if(chartTitle) chartTitle.innerHTML='Expected cashflow — Jan to Dec 2026 <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;font-size:10px">(click month) &nbsp; <strong style="color:var(--green)">'+(mi===-1?"Year: "+fmtS(yt):MONTHS[mi]+": "+selVal)+'</strong></span>';
 }
-
+ 
 function updateCmpCard(){
   const isYr=mi===-1;
-  const all=D;
   let exp,col;
   if(isYr){
-    exp=all.filter(r=>r[1]==="Active").reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
+    exp=MONTHS.reduce((s,_,i)=>s+expectedForMonth(i),0);
     col=COLLECTED.reduce((a,v)=>a+v,0);
   }else{
-    exp=all.filter(r=>r[1]==="Active").reduce((s,r)=>s+r[4][mi],0);
+    exp=expectedForMonth(mi);
     col=COLLECTED[mi]||0;
   }
   const mx=Math.max(exp,col)||1;
@@ -341,14 +346,14 @@ function updateCmpCard(){
     diffEl.style.background="var(--red-bg)";
   }
 }
-
+ 
 function getFiltered(){
   const q=document.getElementById("search").value.toLowerCase();
   const base=byStatus();
   const byM=mi>=0?base.filter(r=>r[4][mi]>0):base;
   return byM.filter(r=>!q||r[0].toLowerCase().includes(q));
 }
-
+ 
 function renderTable(){pg=1;_render();}
 function go(d){const tp=Math.ceil(getFiltered().length/PS);pg=Math.max(1,Math.min(tp,pg+d));_render();}
 function _render(){
@@ -370,7 +375,7 @@ function _render(){
     </tr>`;
   }).join("");
 }
-
+ 
 setMonth(4); // default: May 2026
 </script>
 </body>
