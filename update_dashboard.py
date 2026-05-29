@@ -242,21 +242,30 @@ def build_customer_map(subs):
 
         label = stripe_status_to_label(sub.status)
 
+        # next invoice date from current_period_end
+        next_invoice = getattr(sub, "current_period_end", None)
+        next_invoice_str = ""
+        if next_invoice:
+            from datetime import datetime, timezone
+            next_invoice_str = datetime.fromtimestamp(next_invoice, tz=timezone.utc).strftime("%b %d, %Y")
+
         # consolidate multiple subs per email — keep most severe status
         priority = {"Past due": 3, "Unpaid": 2, "Cancelled": 1, "Active": 0}
         if email in result:
             existing = result[email]
             if priority.get(label, 0) > priority.get(existing["status"], 0):
                 existing["status"] = label
+                existing["next_invoice"] = next_invoice_str
             existing["amount"] = max(existing["amount"], amount)
         else:
             result[email] = {
-                "name":     name or email,
-                "email":    email,
-                "status":   label,
-                "interval": interval,
-                "amount":   amount,
-                "currency": currency,
+                "name":         name or email,
+                "email":        email,
+                "status":       label,
+                "interval":     interval,
+                "amount":       amount,
+                "currency":     currency,
+                "next_invoice": next_invoice_str,
             }
     return result
 
@@ -277,12 +286,13 @@ def build_rows(customer_map):
             info["interval"],
             round(info["amount"] / 100) if info["currency"] == "usd" else 0,
             proj,
+            info.get("next_invoice", ""),
         ])
 
     # add any CSV names not found in Stripe (keep their last known status)
     for csv_name in MONTHLY_PROJECTIONS:
         if csv_name not in seen_names:
-            rows.append([csv_name, "Active", "Annual", 0, MONTHLY_PROJECTIONS[csv_name]])
+            rows.append([csv_name, "Active", "Annual", 0, MONTHLY_PROJECTIONS[csv_name], ""])
 
     rows.sort(key=lambda r: r[3], reverse=True)
     return rows
@@ -431,7 +441,7 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
   </div>
 
   <div class="metrics">
-    <div class="mc"><div class="lbl">Expected result</div><div class="val" id="m-expected" style="color:var(--green)">—</div><div class="sub">this month</div></div>
+    <div class="mc"><div class="lbl">Expected result</div><div class="val" id="m-expected" style="color:var(--green)">—</div></div>
     <div class="mc"><div class="lbl">Active paying</div><div class="val" id="m-active">—</div><div class="sub" id="m-active-sub">—</div></div>
     <div class="mc"><div class="lbl">Problem accounts</div><div class="val" id="m-problem" style="color:var(--red)">—</div><div class="sub">past due / unpaid</div></div>
     <div class="mc"><div class="lbl">Deductions</div><div class="val" id="m-deductions" style="color:var(--gray)">—</div><div class="sub">cancellations</div></div>
@@ -457,10 +467,6 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
         <select id="flt" onchange="updateAll()">
           <option value="all">All</option>
           <option value="Active">Active</option>
-          <option value="Past due">Past due</option>
-          <option value="Unpaid">Unpaid</option>
-          <option value="has-revenue">Has revenue this month</option>
-          <option value="no-revenue">No revenue this month</option>
           <option value="problem">Problem accounts</option>
         </select>
       </div>
@@ -470,7 +476,7 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
         <thead><tr>
           <th style="width:30%">Customer</th>
           <th style="width:13%">Status</th>
-          <th style="width:13%" class="r" id="col-month">May 2026</th>
+          <th style="width:16%" id="col-month">Next invoice</th>
           <th style="width:13%" class="r">Annual total</th>
           <th style="width:13%" class="r">Base amount</th>
           <th style="width:10%">Interval</th>
@@ -504,11 +510,7 @@ function getFilteredByStatus(){{
   return D.filter(r=>{{
     if(f==="all") return true;
     if(f==="Active") return r[1]==="Active";
-    if(f==="Past due") return r[1]==="Past due";
-    if(f==="Unpaid") return r[1]==="Unpaid";
     if(f==="problem") return r[1]==="Past due"||r[1]==="Unpaid";
-    if(f==="has-revenue") return mi>=0 ? r[4][mi]>0 : r[4].some(v=>v>0);
-    if(f==="no-revenue") return mi>=0 ? r[4][mi]===0 : r[4].every(v=>v===0);
     return true;
   }});
 }}
@@ -519,11 +521,9 @@ function setMonth(i){{
   document.getElementById("next-mo").disabled = mi===7;
   if(mi===-1){{
     document.getElementById("mo-label").textContent="2026";
-    document.getElementById("col-month").textContent="This month";
     document.getElementById("tbl-title").textContent="All customers — Full Year 2026";
   }} else {{
     document.getElementById("mo-label").textContent=MONTHS[mi];
-    document.getElementById("col-month").textContent=MONTHS[mi];
     document.getElementById("tbl-title").textContent="Customers with revenue — "+MONTHS[mi];
   }}
   updateAll();
@@ -620,13 +620,14 @@ function _render(){{
   document.getElementById("next-pg").disabled=pg>=tp;
   document.getElementById("ct-lbl").textContent=f.length+" customers";
   document.getElementById("tbody").innerHTML=rows.map((r,i)=>{{
-    const v=mi>=0?r[4][mi]:r[4].reduce((a,x)=>a+x,0);
     const annualTotal=r[4].reduce((a,x)=>a+x,0);
-    const ac=v>0?"amt-pos":v<0?"amt-neg":"amt-zero";
+    const nextInv=r[5]||"—";
+    const isProb=r[1]==="Past due"||r[1]==="Unpaid";
+    const nextStyle=isProb?"color:var(--red);font-weight:500":"color:var(--text2)";
     return `<tr style="${{i===rows.length-1?"border-bottom:none":""}}">
       <td style="font-weight:500">${{r[0]}}</td>
       <td><span class="badge ${{BC[r[1]]||"b-unpaid"}}">${{r[1]}}</span></td>
-      <td class="r ${{ac}}">${{fmt(v)}}</td>
+      <td style="${{nextStyle}};font-size:12px">${{nextInv}}</td>
       <td class="r" style="color:var(--text2)">${{annualTotal>0?fmt(annualTotal):"—"}}</td>
       <td class="r" style="color:var(--text2)">$${{r[3].toLocaleString()}}</td>
       <td><span class="freq">${{r[2]}}</span></td>
