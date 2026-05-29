@@ -523,6 +523,7 @@ def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_in
     today_js         = json.dumps(today_invoices, ensure_ascii=False)
     today_total      = sum(i["amount"] for i in today_invoices if i["currency"] == "USD")
     today_count      = len(today_invoices)
+    today_total_fmt  = f"${today_total:,.0f}" if today_total else "$0"
     today_rows_html  = "".join(
         f'<tr style="border-bottom:0.5px solid var(--border2)">'
         f'<td style="padding:9px 12px;font-weight:500">{i["name"]}</td>'
