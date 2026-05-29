@@ -2,197 +2,49 @@
 update_dashboard.py
 Fetches live subscription data from Stripe and regenerates index.html.
 Runs via GitHub Actions every weekday at 9:30 AM BRT.
+All data comes directly from Stripe — no CSV dependencies.
 """
 
-import os, json, stripe
+import os, json, stripe, calendar
 from datetime import datetime, timezone
 
 stripe.api_key = os.environ["STRIPE_API_KEY"]
 
-# ── Email → customer name mapping (from Floori CSV) ─────────────────────────
-EMAIL_TO_NAME = {
-    "afshin@unitexint.com": "The Trustee for THE NEJADIRAN FAMILY TRUST",
-    "dov@carmelgroup.co.il": "Carmel Floor",
-    "atheer@carrim.co.za": "K Carrim Holdings Pty Ltd",
-    "eugene@uacarpet.com.sg": "Heritage Carpets",
-    "nick@garagefloorcoating.com": "Garage Floor Coating",
-    "filip@tapijt.com": "Tapijten Demuynck",
-    "mariana.lisboa@indusparquet.com.br": "Indusparquet",
-    "contact@everfloor.com.au": "VBL Import Pty Ltd",
-    "jason@americanremodeling.net": "Jason Larsen",
-    "johan.wingner@bona.com": "Bona US",
-    "info@koremanmaastricht.nl": "Koreman Exclusive Carpets",
-    "paz.sanmillan@uniber.com.ar": "Supermat",
-    "fortressfloorsofmn@gmail.com": "Fortress Floors of MN",
-    "jrayala@armorconcretecoatings.com": "Angelo A Ayala Jr",
-    "chelseas@motorcityfloorsandcoatings.com": "Robert Falls",
-    "billy@paintanddecorate.com.au": "Tony Isgrove's Paint and Decorate",
-    "info@toughfloors.com.au": "Tough Floors Australia",
-    "accounts@allgrind.com.au": "All Grind",
-    "cl@jti-gulv.dk": "Jti Gulventreprise",
-    "alexj@emonster.ca": "SHOUGUO JIAO",
-    "info@granicreteaustralia.com.au": "Granicrete Australia",
-    "brian@encoregroupnj.com": "603 Epoxy",
-    "chad.paulson@twincityepoxydocs.com": "Chad Paulson",
-    "hello@agcnz.co.nz": "Affordable Garage Carpet",
-    "jessica@rugsforgood.com.au": "Rugs for Good Pty LTD",
-    "contato@tapetah.com.br": "Tapetah",
-    "denis.staudt@herval.com.br": "Global Distribuição de Bens de Consumo",
-    "quickresponsefloorcoatings@gmail.com": "Cassandra Koprucu",
-    "tim@randswoodflooring.com": "Randswood Flooring",
-    "alex@scicoatings.com": "SCI Coatings",
-    "nleonhardt@pisosalemanes.com": "The Carpet Company",
-    "R.martin@niazi.com.br": "NIAZI CHOHFI",
-    "marilia@koord.com.br": "Koord Creativeloom",
-    "camila@epoxynetwork.com": "Camila Ordonez",
-    "amanda.arsenault@pravadafloors.com": "Pravada",
-    "alex@tsrconcretecoatings.com": "Alexander Marck",
-    "info@acsento.com": "Acsento",
-    "contact@triff.com": "Triff",
-    "dev@originate.ie": "Originate",
-    "ali@finalspecs.com": "Final Specs Flooring",
-    "roni@viastar.com.br": "ViaStar",
-    "James@tendadostapetes.com.br": "Tenda dos Tapetes",
-    "jennifer.berry@staufusa.com": "Stauf USA",
-    "lalvarado@dicsamexico.com.mx": "LA DISTRIBUIDORA DE CASIMIRES",
-    "daniele.colcelli@stile.com": "Stile Società Cooperativa",
-    "MARKETING@MARBLELIFE.COM": "MARBLELIFE",
-    "sophiel@usmills.com": "Sophie Lupien",
-    "suzuki-kei@tajima.co.jp": "TAJIMA ROOFING",
-    "info@bijan.com.au": "Exclusive Rugs By Bijan",
-    "emanuelnoriega@edificor.com.ar": "EDIFICOR S.R.L",
-    "shelley@eva-last.com": "Eva-last Hong Kong",
-    "info@vanheugtentapijttegels.nl": "Van Heugten Tapijtegels BV",
-    "marco@bestwoolcarpets.com": "Best Wool Carpets",
-    "carolkeese@carolinaaircare.com": "Carolina Air Care",
-    "josefina.cohenp@gmail.com": "Consorcio Persa",
-    "suzana@bdesign.com.br": "S W Gomes de Barros",
-    "lucas.andrade@luzzo.com.br": "Luzzo Revestimentos",
-    "israel.dias@quero-quero.com.br": "LOJAS QUERO-QUERO",
-    "daniel.felix@rcpisos.com.br": "ATELIE PISOS",
-    "mvarela@cerronegro.com.ar": "CANTERAS CERRO NEGRO",
-    "abigail@double.online": "Terra Enterprises",
-    "sina@iconicrugs.com.au": "Iconic Rugs",
-    "pamela.novak@jetrockinc.com": "JetRock Inc",
-    "rich@garageflooringpros.com": "Rich Arriaga",
-    "e-commerce@kapazi.com.br": "Kapazi",
-    "pisobelo@pisobelo.com.br": "Piso Belo",
-    "info@iowaepoxy.com": "William A George",
-    "abraham.rafael.gc@hotmail.com": "EDNA VIANNEY GARCIA CUEVAS",
-    "Danielle.vieira@floori.io": "Cartacho Tapetes",
-    "info@granitestateepoxy.com": "Bryan Coulonbe",
-    "Tim@epoxyfloorsnmore.com": "Epoxy Floors N More",
-    "ron@superiorgarageusa.com": "Superior Garage Flooring",
-    "connorschupbach@gmail.com": "Accu-Seal LLC",
-    "opusrenovation22@gmail.com": "Opus Renovation",
-    "mix@coatingdesigns.com": "Coatingdesigns.com",
-    "protouchcoating@gmail.com": "Pro Touch Coating",
-    "waltertwrocha@gmail.com": "Quality Floor",
-    "rhys@diamondfloorco.com": "Diamond Floor Co.",
-    "terry@tlcec.com.au": "TLC Epoxy Coatings",
-    "madisoncoatingscompany@gmail.com": "Madison Coatings",
-    "joe@lnsconcretecoatings.com": "Joseph Chirichella",
-    "marketing@passalacqua.com.br": "Passalacqua & Cia",
-    "hello@ruglove.co.uk": "Rug Love Ltd",
-    "info@floorsandwalls.ae": "Floors and Walls",
-    "david@tristateepoxy.io": "Tri-State Epoxy",
-    "rrusinski@swaydepoxy.com": "Roman Rusinski",
-    "Scott@dbackpainting.com": "Diamondback Coatings",
-    "shawnschierts@me.com": "Atomic Shield Coating",
-    "diegobelato@hotmail.com": "Tecelagem Brasil",
-    "n-botirxon@mail.ru": "Yekaterina Orexova",
-    "chrisstone2010@hotmail.co.uk": "Cozy Flooring",
-    "joni@thefloordesignstudio.co.uk": "Jonathan Reeves",
-    "office@814epoxyandmore.com": "Joseph Fletcher",
-    "contabilidad@unidekor.com.mx": "Unidekor",
-    "hello@tilesman.com": "TilesMan",
-    "joe@volf.com.au": "Volf Concrete Coatings",
-    "jake@concretecote.com": "Jacob Vaughn / Concretecote.com",
-    "rmullen@flooringsolutions.us": "Flooring Solutions",
-    "info@cornerstonehsr.com": "Cornerstone",
-    "jordi@terracassa.com": "terracassa.com",
-    "info@battlebornpainting.com": "Battle Born Coatings",
-    "erinm@iawlight.com": "IAW LIGHT",
-    "onlinesales@alghomlas.co": "Musaed Abdul Latif Al Ghamlas",
-    "mercadeo@listo.co": "TODACO S.A.S",
-    "marketing@avanti-koberce.cz": "Avanti Koberce",
-    "magdalenakinska@woodconnexions.com": "Wood Connexions Ltd",
-}
+# ── Period definition: May–Dec 2026 ─────────────────────────────────────────
+PERIOD_MONTHS = [
+    datetime(2026, m, 1, tzinfo=timezone.utc)
+    for m in range(5, 13)
+]
+PERIOD_START = PERIOD_MONTHS[0]
+PERIOD_END   = datetime(2027, 1, 1, tzinfo=timezone.utc)
 
-# Monthly revenue projections per customer (May–Dec 2026)
-# These are based on the Floori CSV and represent known renewal schedules.
-# Status and amounts are overwritten by live Stripe data on each run.
-MONTHLY_PROJECTIONS = {
-    "The Trustee for THE NEJADIRAN FAMILY TRUST": [0,0,0,0,8457,0,0,0],
-    "Carmel Floor": [0,600,0,0,0,0,0,0],
-    "K Carrim Holdings Pty Ltd": [0,0,0,0,6500,0,0,0],
-    "Heritage Carpets": [0,0,0,5391,0,0,0,0],
-    "Garage Floor Coating": [0,0,0,5040,0,0,0,0],
-    "Tapijten Demuynck": [5248,0,0,0,0,0,0,0],
-    "Indusparquet": [0,0,0,0,0,3842,0,0],
-    "VBL Import Pty Ltd": [0,0,0,0,0,3600,0,0],
-    "Jason Larsen": [0,0,3499,0,0,0,0,0],
-    "Bona US": [3225,3225,3225,3225,3225,3225,3225,3225],
-    "Koreman Exclusive Carpets": [0,0,0,0,0,0,2988,0],
-    "Supermat": [0,0,2500,0,0,0,0,0],
-    "Fortress Floors of MN": [0,0,0,0,2300,0,0,0],
-    "Angelo A Ayala Jr": [0,1800,0,0,0,0,0,0],
-    "Robert Falls": [0,0,1800,0,0,0,0,0],
-    "Tony Isgrove's Paint and Decorate": [0,0,0,1800,0,0,0,0],
-    "Tough Floors Australia": [0,0,0,1800,0,0,0,0],
-    "All Grind": [0,0,0,0,1800,0,0,0],
-    "Jti Gulventreprise": [0,0,0,0,1800,0,0,0],
-    "SHOUGUO JIAO": [0,0,0,0,1800,0,0,0],
-    "Granicrete Australia": [0,0,0,0,1800,0,0,0],
-    "603 Epoxy": [0,0,0,0,1800,0,0,0],
-    "Chad Paulson": [0,1700,0,0,0,0,0,0],
-    "Affordable Garage Carpet": [1650,0,0,0,0,0,0,0],
-    "Rugs for Good Pty LTD": [1715,1715,1715,1715,1715,1715,1715,1715],
-    "Tapetah": [1560,0,0,0,0,0,0,0],
-    "Global Distribuição de Bens de Consumo": [295,295,295,295,295,295,295,295],
-    "Cassandra Koprucu": [0,0,1440,0,0,0,0,0],
-    "Randswood Flooring": [0,0,0,0,0,0,0,0],
-    "SCI Coatings": [0,0,0,0,0,0,0,0],
-    "The Carpet Company": [0,621,0,0,0,0,0,0],
-    "NIAZI CHOHFI": [2500,0,0,0,0,0,0,0],
-    "Koord Creativeloom": [774,0,0,0,0,0,0,0],
-    "Camila Ordonez": [50,50,50,600,50,50,50,50],
-    "Pravada": [599,599,599,599,599,599,599,599],
-    "Alexander Marck": [499,499,499,499,499,499,499,499],
-    "Acsento": [416,416,416,416,416,416,416,416],
-    "Triff": [400,400,400,400,400,400,400,400],
-    "Originate": [419,419,419,419,419,419,419,419],
-    "Final Specs Flooring": [355,355,355,355,355,355,355,355],
-    "ViaStar": [350,350,350,350,350,350,350,350],
-    "Tenda dos Tapetes": [300,300,300,300,300,300,300,300],
-    "Stauf USA": [299,299,299,299,299,299,299,299],
-    "LA DISTRIBUIDORA DE CASIMIRES": [295,295,295,295,295,295,295,295],
-    "Stile Società Cooperativa": [304,304,304,304,304,304,304,304],
-    "MARBLELIFE": [249,249,249,249,249,249,249,249],
-    "Sophie Lupien": [233,233,233,233,233,233,233,233],
-    "TAJIMA ROOFING": [209,0,0,0,0,0,0,0],
-    "Exclusive Rugs By Bijan": [207,207,207,207,207,207,207,207],
-    "EDIFICOR S.R.L": [207,207,207,207,207,207,207,207],
-    "Eva-last Hong Kong": [200,200,200,200,200,200,200,200],
-    "Van Heugten Tapijtegels BV": [0,0,0,0,0,0,0,0],
-    "Best Wool Carpets": [0,0,0,0,0,0,0,0],
-    "The United Agencies": [0,0,0,5391,0,0,0,0],
-    "Carolina Air Care": [0,0,0,0,0,0,1300,0],
-    "Consorcio Persa": [0,0,0,0,0,0,0,0],
-    "S W Gomes de Barros": [-116,116,116,116,116,116,116,116],
-}
+
+def _month_index(dt):
+    """Return 0–7 for May–Dec 2026, or -1 if outside range."""
+    if dt < PERIOD_START or dt >= PERIOD_END:
+        return -1
+    return (dt.year - 2026) * 12 + dt.month - 5
+
+
+def _add_months(dt, n):
+    """Add n months to a datetime, clamping to end of month."""
+    m = dt.month - 1 + n
+    year = dt.year + m // 12
+    month = m % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
 
 
 def stripe_status_to_label(status):
     return {
-        "active": "Active",
-        "past_due": "Past due",
-        "unpaid": "Unpaid",
-        "canceled": "Cancelled",
-        "trialing": "Active",
-        "incomplete": "Unpaid",
+        "active":             "Active",
+        "past_due":           "Past due",
+        "unpaid":             "Unpaid",
+        "canceled":           "Cancelled",
+        "trialing":           "Active",
+        "incomplete":         "Unpaid",
         "incomplete_expired": "Cancelled",
-        "paused": "Cancelled",
+        "paused":             "Cancelled",
     }.get(status, "Active")
 
 
@@ -208,206 +60,134 @@ def fetch_all_subscriptions():
     return subs
 
 
-def build_customer_map(subs):
-    """Returns (by_email, by_name) — two indexes for the same customer data."""
-    by_email = {}
-    by_name  = {}  # normalized lowercase name → info
+def _compute_projections(sub_dict, amount_usd, interval):
+    """
+    Returns list of 8 floats (May–Dec 2026).
+    Monthly subs: projected for each month their billing date falls in window.
+    Annual subs:  projected only for their renewal month if in window.
+    """
+    proj = [0.0] * 8
+    if amount_usd <= 0:
+        return proj
+
+    items = sub_dict.get("items", {}).get("data", [])
+    ts = None
+    if items:
+        ts = items[0].get("current_period_end")
+    if not ts:
+        ts = sub_dict.get("billing_cycle_anchor")
+    if not ts:
+        return proj
+
+    next_renewal = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+
+    if interval == "Annual":
+        mi = _month_index(next_renewal)
+        if 0 <= mi <= 7:
+            proj[mi] = round(amount_usd, 2)
+    else:
+        # Monthly: advance until first billing date within window
+        dt = next_renewal
+        while dt < PERIOD_START:
+            dt = _add_months(dt, 1)
+        while dt < PERIOD_END:
+            mi = _month_index(dt)
+            if 0 <= mi <= 7:
+                proj[mi] = round(amount_usd, 2)
+            dt = _add_months(dt, 1)
+
+    return proj
+
+
+def build_rows(subs):
+    """
+    Build one row per unique customer (by customer ID).
+    Row format: [name, status, interval, base_usd, proj[8], next_invoice_str]
+    Only USD subscriptions are included in projections.
+    Non-USD amounts shown as base_usd=0 but customer still appears.
+    """
+    # Group subscriptions by customer ID — keep most severe status
+    priority = {"Past due": 3, "Unpaid": 2, "Cancelled": 1, "Active": 0}
+    customers = {}  # cust_id → dict
 
     for sub in subs:
         cust = sub.customer
         if isinstance(cust, str):
-            email, name = "", ""
+            cust_id, name, email = cust, "", ""
         else:
-            email = getattr(cust, "email", None) or ""
-            name  = getattr(cust, "name",  None) or ""
+            cust_id = getattr(cust, "id", "") or ""
+            name    = (getattr(cust, "name", "") or "").strip()
+            email   = (getattr(cust, "email", "") or "").strip()
 
-        if not name:
-            name = EMAIL_TO_NAME.get(email, "") or EMAIL_TO_NAME.get(email.lower(), "")
+        display = name or email or cust_id
+        label   = stripe_status_to_label(sub.status)
 
-        # subscription item details
-        items_data = getattr(getattr(sub, "items", None), "data", []) or []
-        item = items_data[0] if items_data else None
-
-        amount   = 0
-        interval = "Monthly"
-        currency = "usd"
-
-        if item:
-            price = getattr(item, "price", None)
-            if price:
-                amount   = getattr(price, "unit_amount", 0) or 0
-                currency = (getattr(price, "currency", "usd") or "usd").lower()
-                recurring = getattr(price, "recurring", None)
-                if recurring and getattr(recurring, "interval", None) == "year":
-                    interval = "Annual"
-
-        label = stripe_status_to_label(sub.status)
-
-        # next invoice date — Stripe API 2024+: current_period_end lives in items.data[0]
-        next_invoice_str = ""
         try:
             sub_dict = sub.to_dict()
+        except Exception:
+            sub_dict = {}
+
+        items_data = sub_dict.get("items", {}).get("data", [])
+        item = items_data[0] if items_data else {}
+        price = item.get("price", {}) or {}
+        amount   = (price.get("unit_amount") or 0)
+        currency = (price.get("currency") or "usd").lower()
+        rec      = (price.get("recurring") or {})
+        interval = "Annual" if rec.get("interval") == "year" else "Monthly"
+        amount_usd = round(amount / 100, 2) if currency == "usd" else 0.0
+
+        # Next invoice date
+        next_inv = ""
+        try:
             ts = None
-            sd_items = sub_dict.get("items", {}).get("data", [])
-            if sd_items:
-                ts = sd_items[0].get("current_period_end")
+            if items_data:
+                ts = items_data[0].get("current_period_end")
             if not ts:
                 ts = sub_dict.get("billing_cycle_anchor")
             if ts:
-                next_invoice_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d, %Y")
+                next_inv = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d, %Y")
         except Exception:
-            next_invoice_str = ""
+            pass
 
-        priority = {"Past due": 3, "Unpaid": 2, "Cancelled": 1, "Active": 0}
-        info = {
-            "name":         name or email,
-            "email":        email,
-            "status":       label,
-            "interval":     interval,
-            "amount":       amount,
-            "currency":     currency,
-            "next_invoice": next_invoice_str,
-        }
+        proj = _compute_projections(sub_dict, amount_usd, interval)
 
-        # index by email
-        if email:
-            if email in by_email:
-                existing = by_email[email]
-                if priority.get(label, 0) > priority.get(existing["status"], 0):
-                    existing["status"] = label
-                    existing["next_invoice"] = next_invoice_str
-                existing["amount"] = max(existing["amount"], amount)
-            else:
-                by_email[email] = info
-
-        # index by normalized name
-        if name:
-            nname = _normalize(name)
-            if nname not in by_name:
-                by_name[nname] = info
-            else:
-                existing = by_name[nname]
-                if priority.get(label, 0) > priority.get(existing["status"], 0):
-                    existing["status"] = label
-                    existing["next_invoice"] = next_invoice_str
-                existing["amount"] = max(existing["amount"], amount)
-
-    return by_email, by_name
-
-
-# Legal suffixes to strip before name comparison
-_LEGAL_SUFFIXES = [
-    " ltda", " ltda.", " s.a.", " s.a", " sa", " s/a", " inc", " inc.",
-    " llc", " llc.", " ltd", " ltd.", " pty ltd", " pty", " gmbh",
-    " s.r.l", " s.r.l.", " srl", " s.l.", " sl", " bv", " b.v.",
-    " nv", " ag", " corp", " corp.", " co.", " co", " company",
-    " group", " holdings", " cias", " cia", " & cia",
-]
-
-def _normalize(name: str) -> str:
-    """Lowercase, strip legal suffixes and extra whitespace."""
-    n = name.strip().lower()
-    for sfx in _LEGAL_SUFFIXES:
-        if n.endswith(sfx):
-            n = n[: -len(sfx)].strip()
-            break
-    return n
-
-def _fuzzy_match(csv_name: str, by_name: dict):
-    """
-    Try to find csv_name in by_name using progressively looser matching:
-    1. Exact normalized match
-    2. Stripe name starts with CSV name (or vice-versa), min 10 chars
-    """
-    csv_norm = _normalize(csv_name)
-
-    # 1. exact after normalization
-    if csv_norm in by_name:
-        return by_name[csv_norm]
-
-    # 2. prefix match — one starts with the other
-    if len(csv_norm) >= 10:
-        for stripe_norm, info in by_name.items():
-            if stripe_norm.startswith(csv_norm) or csv_norm.startswith(stripe_norm):
-                if len(stripe_norm) >= 10:
-                    return info
-
-    return None
-
-
-def build_rows(customer_map):
-    by_email, by_name = customer_map
-    rows = []
-    seen_names = set()
-
-    # Pre-build: Stripe display name → CSV key (for projection lookup + dedup)
-    stripe_to_csv = {}
-    for csv_name in MONTHLY_PROJECTIONS:
-        csv_norm = _normalize(csv_name)
-        # exact normalized match
-        if csv_norm in by_name:
-            stripe_to_csv[by_name[csv_norm]["name"]] = csv_name
+        if cust_id not in customers:
+            customers[cust_id] = {
+                "name":       display,
+                "status":     label,
+                "interval":   interval,
+                "amount_usd": amount_usd,
+                "proj":       proj,
+                "next_inv":   next_inv,
+            }
         else:
-            # prefix match
-            if len(csv_norm) >= 10:
-                for stripe_norm, info in by_name.items():
-                    if len(stripe_norm) >= 10:
-                        if stripe_norm.startswith(csv_norm) or csv_norm.startswith(stripe_norm):
-                            stripe_to_csv[info["name"]] = csv_name
-                            break
+            ex = customers[cust_id]
+            # Escalate status if worse
+            if priority.get(label, 0) > priority.get(ex["status"], 0):
+                ex["status"]   = label
+                ex["next_inv"] = next_inv
+            # Sum projections (customer may have multiple subs)
+            ex["proj"]       = [round(a + b, 2) for a, b in zip(ex["proj"], proj)]
+            ex["amount_usd"] = round(ex["amount_usd"] + amount_usd, 2)
 
-    for email, info in by_email.items():
-        stripe_name = info["name"]
-        # Use CSV name if mapped, otherwise Stripe name
-        display_name = stripe_to_csv.get(stripe_name, stripe_name)
-        if not display_name or display_name in seen_names:
-            continue
-        seen_names.add(display_name)
-        proj = MONTHLY_PROJECTIONS.get(display_name, [0,0,0,0,0,0,0,0])
+    rows = []
+    for info in customers.values():
         rows.append([
-            display_name,
+            info["name"],
             info["status"],
             info["interval"],
-            round(info["amount"] / 100) if info["currency"] == "usd" else 0,
-            proj,
-            info.get("next_invoice", ""),
+            info["amount_usd"],
+            info["proj"],
+            info["next_inv"],
         ])
 
-    # CSV names not yet covered by email loop — fuzzy match or fallback
-    for csv_name in MONTHLY_PROJECTIONS:
-        if csv_name in seen_names:
-            continue
-        seen_names.add(csv_name)
-        stripe_info = _fuzzy_match(csv_name, by_name)
-        if stripe_info:
-            rows.append([
-                csv_name,
-                stripe_info["status"],
-                stripe_info["interval"],
-                round(stripe_info["amount"] / 100) if stripe_info["currency"] == "usd" else 0,
-                MONTHLY_PROJECTIONS[csv_name],
-                stripe_info.get("next_invoice", ""),
-            ])
-        else:
-            rows.append([csv_name, "Active", "Annual", 0, MONTHLY_PROJECTIONS[csv_name], ""])
-
     rows.sort(key=lambda r: r[3], reverse=True)
-
-    # Final dedup: if two rows normalize to the same name, keep the one with higher base amount
-    seen_norm = set()
-    deduped = []
-    for row in rows:
-        norm = _normalize(row[0])
-        if norm not in seen_norm:
-            seen_norm.add(norm)
-            deduped.append(row)
-
-    return deduped
+    return rows
 
 
 def compute_totals(rows):
-    totals = [0.0] * 8
-    active = [0.0] * 8
+    totals  = [0.0] * 8
+    active  = [0.0] * 8
     problem = [0.0] * 8
     for r in rows:
         for i, v in enumerate(r[4]):
@@ -424,7 +204,7 @@ def compute_totals(rows):
 
 
 def compute_subscription_metrics(subs):
-    """Compute MRR and ARR breakdown from live Stripe subscription data."""
+    """MRR/ARR from active USD subscriptions."""
     monthly_mrr = 0.0
     annual_arr  = 0.0
     monthly_count = 0
@@ -445,33 +225,33 @@ def compute_subscription_metrics(subs):
             if currency != "usd" or not amount:
                 continue
             if interval == "year":
-                annual_arr  += amount / 100
+                annual_arr   += amount / 100
                 annual_count += 1
             else:
-                monthly_mrr += amount / 100
+                monthly_mrr   += amount / 100
                 monthly_count += 1
         except Exception:
             continue
 
     return {
-        "monthly_mrr":    round(monthly_mrr, 2),
-        "annual_arr":     round(annual_arr, 2),
-        "annual_mrr":     round(annual_arr / 12, 2),
-        "total_mrr":      round(monthly_mrr + annual_arr / 12, 2),
-        "monthly_count":  monthly_count,
-        "annual_count":   annual_count,
+        "monthly_mrr":   round(monthly_mrr, 2),
+        "annual_arr":    round(annual_arr, 2),
+        "annual_mrr":    round(annual_arr / 12, 2),
+        "total_mrr":     round(monthly_mrr + annual_arr / 12, 2),
+        "monthly_count": monthly_count,
+        "annual_count":  annual_count,
     }
 
 
-def fetch_today_invoices(by_email, by_name):
-    """Fetch invoices paid in the last 24h using Stripe Events API (filters by payment time, not creation time)."""
+def fetch_today_invoices(subs):
+    """Fetch invoice.payment_succeeded events in last 24h."""
     import time
     since = int(time.time()) - 86400
     results = []
     try:
         params = {
-            "type": "invoice.payment_succeeded",
-            "limit": 100,
+            "type":    "invoice.payment_succeeded",
+            "limit":   100,
             "created": {"gte": since},
         }
         while True:
@@ -483,24 +263,9 @@ def fetch_today_invoices(by_email, by_name):
                     currency = (inv_dict.get("currency") or "usd").upper()
                     created  = event.to_dict().get("created", 0)
                     time_str = datetime.fromtimestamp(int(created), tz=timezone.utc).strftime("%H:%M UTC") if created else ""
-
-                    # resolve customer name
-                    cust_id = inv_dict.get("customer", "")
-                    cname   = inv_dict.get("customer_name") or ""
-                    email   = inv_dict.get("customer_email") or ""
-                    if not cname and email:
-                        info  = by_email.get(email) or _fuzzy_match(email, by_name) or {}
-                        cname = info.get("name", "") or EMAIL_TO_NAME.get(email, "")
-                    if not cname:
-                        cname = email or cust_id or "Unknown"
-
+                    cname    = inv_dict.get("customer_name") or inv_dict.get("customer_email") or "Unknown"
                     if amount > 0:
-                        results.append({
-                            "name":     cname,
-                            "amount":   amount,
-                            "currency": currency,
-                            "time":     time_str,
-                        })
+                        results.append({"name": cname, "amount": amount, "currency": currency, "time": time_str})
                 except Exception:
                     continue
             if not page.has_more:
@@ -508,9 +273,10 @@ def fetch_today_invoices(by_email, by_name):
             params["starting_after"] = page.data[-1].id
     except Exception as e:
         print(f"  Warning: could not fetch today's invoices: {e}")
-
     results.sort(key=lambda x: x["time"], reverse=True)
     return results
+
+
 
 
 def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices):
@@ -882,20 +648,19 @@ if __name__ == "__main__":
     subs = fetch_all_subscriptions()
     print(f"  {len(subs)} subscriptions fetched")
 
-    customer_map = build_customer_map(subs)
-    dated = sum(1 for v in customer_map[0].values() if v.get("next_invoice"))
-    print(f"  {dated}/{len(customer_map[0])} customers have a next invoice date")
+    print("Building rows from Stripe data...")
+    rows = build_rows(subs)
+    print(f"  {len(rows)} unique customers")
+
+    totals, active_tot, problem_tot = compute_totals(rows)
 
     print("Computing subscription metrics...")
     metrics = compute_subscription_metrics(subs)
     print(f"  MRR: ${metrics['total_mrr']:,.0f} (monthly ${metrics['monthly_mrr']:,.0f} + annual equiv. ${metrics['annual_mrr']:,.0f})")
 
-    print("Fetching today's invoices...")
-    today_invoices = fetch_today_invoices(customer_map[0], customer_map[1])
+    print("Fetching today\'s invoices...")
+    today_invoices = fetch_today_invoices(subs)
     print(f"  {len(today_invoices)} invoice(s) paid in last 24h")
-
-    rows = build_rows(customer_map)
-    totals, active_tot, problem_tot = compute_totals(rows)
 
     synced = datetime.now(timezone.utc).strftime("%b %d, %Y at %H:%M UTC")
     html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices)
