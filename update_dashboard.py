@@ -439,7 +439,7 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
 
   <div class="row2">
     <div class="card">
-      <div class="card-title">Monthly overview — click to navigate</div>
+      <div class="card-title">Monthly overview — click month to filter · Year = all customers</div>
       <div class="sparkwrap" id="sparkbars"></div>
       <div class="spark-minmax"><span id="sp-min"></span><span id="sp-max"></span></div>
     </div>
@@ -468,9 +468,10 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th style="width:32%">Customer</th>
+          <th style="width:30%">Customer</th>
           <th style="width:13%">Status</th>
           <th style="width:13%" class="r" id="col-month">May 2026</th>
+          <th style="width:13%" class="r">Annual total</th>
           <th style="width:13%" class="r">Base amount</th>
           <th style="width:10%">Interval</th>
         </tr></thead>
@@ -489,14 +490,15 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
 <script>
 const MONTHS=["May 2026","Jun 2026","Jul 2026","Aug 2026","Sep 2026","Oct 2026","Nov 2026","Dec 2026"];
 const DEDUCTIONS={deductions_js};
-// Exclude cancelled from the dataset entirely
 const D={rows_js}.filter(r=>r[1]!=="Cancelled");
 const BC={{"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"}};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{{style:"currency",currency:"USD",maximumFractionDigits:0}}).format(Math.abs(v));
 const fmtShort=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
-let mi=0,pg=1,statusFilter="all";const PS=15;
 
-// Returns only the rows matching current status filter
+// mi = 0..7 for months, -1 = "Year" (all customers, aggregated)
+let mi=0, pg=1, statusFilter="all";
+const PS=15;
+
 function getFilteredByStatus(){{
   const f=statusFilter;
   return D.filter(r=>{{
@@ -505,19 +507,25 @@ function getFilteredByStatus(){{
     if(f==="Past due") return r[1]==="Past due";
     if(f==="Unpaid") return r[1]==="Unpaid";
     if(f==="problem") return r[1]==="Past due"||r[1]==="Unpaid";
-    if(f==="has-revenue") return r[4][mi]>0;
-    if(f==="no-revenue") return r[4][mi]===0;
+    if(f==="has-revenue") return mi>=0 ? r[4][mi]>0 : r[4].some(v=>v>0);
+    if(f==="no-revenue") return mi>=0 ? r[4][mi]===0 : r[4].every(v=>v===0);
     return true;
   }});
 }}
 
 function setMonth(i){{
-  mi=Math.max(0,Math.min(7,i));
-  document.getElementById("prev-mo").disabled=mi===0;
-  document.getElementById("next-mo").disabled=mi===7;
-  document.getElementById("mo-label").textContent=MONTHS[mi];
-  document.getElementById("col-month").textContent=MONTHS[mi];
-  document.getElementById("tbl-title").textContent="Customers — "+MONTHS[mi];
+  mi=i; // -1 = Year view, 0-7 = month
+  document.getElementById("prev-mo").disabled = mi<=0;
+  document.getElementById("next-mo").disabled = mi===7;
+  if(mi===-1){{
+    document.getElementById("mo-label").textContent="2026";
+    document.getElementById("col-month").textContent="This month";
+    document.getElementById("tbl-title").textContent="All customers — Full Year 2026";
+  }} else {{
+    document.getElementById("mo-label").textContent=MONTHS[mi];
+    document.getElementById("col-month").textContent=MONTHS[mi];
+    document.getElementById("tbl-title").textContent="Customers with revenue — "+MONTHS[mi];
+  }}
   updateAll();
 }}
 
@@ -531,37 +539,60 @@ function updateAll(){{
 
 function updateMetrics(){{
   const base=getFilteredByStatus();
-  const expected=base.reduce((s,r)=>s+r[4][mi],0);
-  const activePaying=base.filter(r=>r[1]==="Active"&&r[4][mi]>0);
-  const problems=base.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
-  const problemAmt=problems.reduce((s,r)=>s+r[4][mi],0);
+  let expected, activePaying, problems, problemAmt;
+  if(mi===-1){{
+    // Year view: sum all months
+    expected=base.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
+    activePaying=base.filter(r=>r[1]==="Active"&&r[4].some(v=>v>0));
+    problems=base.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
+    problemAmt=problems.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
+  }} else {{
+    expected=base.reduce((s,r)=>s+r[4][mi],0);
+    activePaying=base.filter(r=>r[1]==="Active"&&r[4][mi]>0);
+    problems=base.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
+    problemAmt=problems.reduce((s,r)=>s+r[4][mi],0);
+  }}
   document.getElementById("m-expected").textContent=fmtShort(expected);
-  document.getElementById("m-active").textContent=fmtShort(activePaying.reduce((s,r)=>s+r[4][mi],0));
+  document.getElementById("m-active").textContent=fmtShort(activePaying.reduce((s,r)=>s+(mi>=0?r[4][mi]:r[4].reduce((a,v)=>a+v,0)),0));
   document.getElementById("m-active-sub").textContent=activePaying.length+" customers with revenue";
   document.getElementById("m-problem").textContent=fmtShort(Math.abs(problemAmt)||problems.length);
-  const d=DEDUCTIONS[mi];
+  const d=mi>=0?DEDUCTIONS[mi]:DEDUCTIONS.reduce((a,v)=>a+v,0);
   document.getElementById("m-deductions").textContent=d<0?"-"+fmtShort(Math.abs(d)):"$0";
 }}
 
 function updateSpark(){{
   const base=getFilteredByStatus();
-  // Compute totals per month for current filter
-  const filtered_totals=MONTHS.map((_,i)=>base.reduce((s,r)=>s+r[4][i],0));
-  const max=Math.max(...filtered_totals)||1;
-  const labels=["May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  document.getElementById("sparkbars").innerHTML=filtered_totals.map((v,i)=>{{
-    const h=Math.round((v/max)*72),active=i===mi;
-    const valLabel=v>0?fmtShort(v):"—";
+  const monthly_totals=MONTHS.map((_,i)=>base.reduce((s,r)=>s+r[4][i],0));
+  const year_total=monthly_totals.reduce((a,v)=>a+v,0);
+  const all_vals=[...monthly_totals, year_total];
+  const max=Math.max(...all_vals)||1;
+  const labels=["May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Year"];
+
+  // 8 month bars + 1 year bar
+  const bars=[...monthly_totals.map((v,i)=>{{
+    const active=mi===i;
+    const h=Math.round((v/max)*72);
     return `<div class="spark-bar" onclick="setMonth(${{i}})">
-      <span class="spark-val${{active?" active":""}}">${{valLabel}}</span>
+      <span class="spark-val${{active?" active":""}}">${{v>0?fmtShort(v):"—"}}</span>
       <div class="spark-fill" style="height:${{h}}px;background:${{active?"#3B6D11":"#C0DD97"}}"></div>
       <span class="spark-lbl${{active?" active":""}}">${{labels[i]}}</span>
     </div>`;
-  }}).join("");
+  }}),
+  // Year column — slightly different style
+  (()=>{{
+    const active=mi===-1;
+    const h=Math.round((year_total/max)*72);
+    return `<div class="spark-bar" onclick="setMonth(-1)" style="border-left:1px solid var(--border2);padding-left:4px;margin-left:2px">
+      <span class="spark-val${{active?" active":""}}" style="font-weight:600">${{fmtShort(year_total)}}</span>
+      <div class="spark-fill" style="height:${{h}}px;background:${{active?"#185FA5":"#A8C4E0"}}"></div>
+      <span class="spark-lbl${{active?" active":""}}" style="${{active?"color:#185FA5;font-weight:500":""}}">${{labels[8]}}</span>
+    </div>`;
+  }})()];
+
+  document.getElementById("sparkbars").innerHTML=bars.join("");
   document.getElementById("sp-min").textContent="";
   document.getElementById("sp-max").textContent="";
 
-  // Status breakdown based on filter
   const total=base.length||1;
   const sb=[
     {{label:"Active",count:base.filter(r=>r[1]==="Active").length,color:"#639922"}},
@@ -573,7 +604,11 @@ function updateSpark(){{
 
 function getFiltered(){{
   const q=document.getElementById("search").value.toLowerCase();
-  return getFilteredByStatus().filter(r=>!q||r[0].toLowerCase().includes(q));
+  const base=getFilteredByStatus();
+  // In month view: only show customers with revenue in that month
+  // In year view: show all
+  const byMonth = mi>=0 ? base.filter(r=>r[4][mi]>0) : base;
+  return byMonth.filter(r=>!q||r[0].toLowerCase().includes(q));
 }}
 
 function renderTable(){{pg=1;_render();}}
@@ -585,8 +620,17 @@ function _render(){{
   document.getElementById("next-pg").disabled=pg>=tp;
   document.getElementById("ct-lbl").textContent=f.length+" customers";
   document.getElementById("tbody").innerHTML=rows.map((r,i)=>{{
-    const v=r[4][mi],ac=v>0?"amt-pos":v<0?"amt-neg":"amt-zero";
-    return `<tr style="${{i===rows.length-1?"border-bottom:none":""}}"><td style="font-weight:500">${{r[0]}}</td><td><span class="badge ${{BC[r[1]]||"b-unpaid"}}">${{r[1]}}</span></td><td class="r ${{ac}}">${{fmt(v)}}</td><td class="r" style="color:var(--text2)">$${{r[3].toLocaleString()}}</td><td><span class="freq">${{r[2]}}</span></td></tr>`;
+    const v=mi>=0?r[4][mi]:r[4].reduce((a,x)=>a+x,0);
+    const annualTotal=r[4].reduce((a,x)=>a+x,0);
+    const ac=v>0?"amt-pos":v<0?"amt-neg":"amt-zero";
+    return `<tr style="${{i===rows.length-1?"border-bottom:none":""}}">
+      <td style="font-weight:500">${{r[0]}}</td>
+      <td><span class="badge ${{BC[r[1]]||"b-unpaid"}}">${{r[1]}}</span></td>
+      <td class="r ${{ac}}">${{fmt(v)}}</td>
+      <td class="r" style="color:var(--text2)">${{annualTotal>0?fmt(annualTotal):"—"}}</td>
+      <td class="r" style="color:var(--text2)">$${{r[3].toLocaleString()}}</td>
+      <td><span class="freq">${{r[2]}}</span></td>
+    </tr>`;
   }}).join("");
 }}
 setMonth(0);
