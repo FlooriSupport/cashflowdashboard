@@ -273,12 +273,11 @@ def fetch_today_invoices(subs):
                 try:
                     inv_dict = event.to_dict().get("data", {}).get("object", {})
                     amount   = (inv_dict.get("amount_paid") or 0) / 100
-                    currency = (inv_dict.get("currency") or "usd").upper()
                     created  = event.to_dict().get("created", 0)
                     time_str = datetime.fromtimestamp(int(created), tz=timezone.utc).strftime("%H:%M UTC") if created else ""
                     cname    = inv_dict.get("customer_name") or inv_dict.get("customer_email") or "Unknown"
                     if amount > 0:
-                        results.append({"name": cname, "amount": amount, "currency": currency, "time": time_str})
+                        results.append({"name": cname, "amount": amount, "time": time_str})
                 except Exception:
                     continue
             if not page.has_more:
@@ -290,16 +289,50 @@ def fetch_today_invoices(subs):
     return results
 
 
+def fetch_monthly_collected():
+    """
+    Fetch all paid invoices from May–Dec 2026 and return collected amounts per month.
+    Treats all amounts as USD (as billed, no FX conversion).
+    Returns list of 8 floats [may, jun, ..., dec].
+    """
+    collected = [0.0] * 8
+    start_ts  = int(PERIOD_START.timestamp())
+    end_ts    = int(PERIOD_END.timestamp())
+    try:
+        params = {
+            "status":       "paid",
+            "created":      {"gte": start_ts, "lte": end_ts},
+            "limit":        100,
+        }
+        while True:
+            page = stripe.Invoice.list(**params)
+            for inv in page.data:
+                try:
+                    d      = inv.to_dict()
+                    amount = (d.get("amount_paid") or 0) / 100
+                    ts     = d.get("status_transitions", {}).get("paid_at") or d.get("created") or 0
+                    if amount > 0 and ts:
+                        dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+                        mi = _month_index(dt)
+                        if 0 <= mi <= 7:
+                            collected[mi] = round(collected[mi] + amount, 2)
+                except Exception:
+                    continue
+            if not page.has_more:
+                break
+            params["starting_after"] = page.data[-1].id
+    except Exception as e:
+        print(f"  Warning: could not fetch monthly collected: {e}")
+    return collected
 
 
-def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices):
+
+
+def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected):
     rows_js          = json.dumps(rows, ensure_ascii=False)
     totals_js        = json.dumps(totals)
-    active_js        = json.dumps(active_tot)
-    problem_js       = json.dumps(problem_tot)
-    deductions_js    = json.dumps([-2616.45, 0, 0, 0, 0, 0, 0, 0])
+    collected_js     = json.dumps(monthly_collected)
     metrics_js       = json.dumps(metrics)
-    today_js         = json.dumps(today_invoices, ensure_ascii=False)
     today_total      = sum(i["amount"] for i in today_invoices)
     today_count      = len(today_invoices)
     today_total_fmt  = f"${today_total:,.0f}" if today_total else "$0"
@@ -307,7 +340,7 @@ def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_in
         f'<tr style="border-bottom:0.5px solid var(--border2)">'
         f'<td style="padding:9px 12px;font-weight:500">{i["name"]}</td>'
         f'<td style="padding:9px 12px;text-align:right;font-variant-numeric:tabular-nums">'
-        f'{i["currency"]} ${i["amount"]:,.2f}</td>'
+        f'${i["amount"]:,.2f}</td>'
         f'<td style="padding:9px 12px;color:var(--text2);font-size:12px">{i["time"]}</td></tr>'
         for i in today_invoices
     )
@@ -479,7 +512,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
     <div class="mc">
       <div class="lbl">Collected today</div>
       <div class="val" style="color:{'var(--green)' if today_total>0 else 'var(--text3)'}">{today_total_fmt}</div>
-      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · amounts as billed</div>
+      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · as billed</div>
     </div>
   </div>
 
@@ -497,7 +530,6 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
       <div class="kv"><span class="k">Expected revenue</span><span class="v green" id="sel-expected">—</span></div>
       <div class="kv"><span class="k">Active paying customers</span><span class="v" id="sel-active-count">—</span></div>
       <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
-      <div class="kv"><span class="k">Lost to churn / cancelled</span><span class="v red" id="sel-churn">—</span></div>
     </div>
     <div class="card">
       <div class="card-title">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h)</span></div>
@@ -543,24 +575,23 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
 const MONTHS=["May 2026","Jun 2026","Jul 2026","Aug 2026","Sep 2026","Oct 2026","Nov 2026","Dec 2026"];
 const MO_SHORT=["May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const D={rows_js}.filter(r=>r[1]!=="Cancelled");
-const CANCELLED_D={rows_js}.filter(r=>r[1]==="Cancelled");
+const COLLECTED={collected_js};
 const BC={{"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"}};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{{style:"currency",currency:"USD",maximumFractionDigits:0}}).format(Math.abs(v));
 const fmtS=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
 
-let mi=0,pg=1,sf="all"; // mi: 0-7=month, -1=year
+let mi=-1,pg=1,sf="all";
 const PS=15;
 
 function byStatus(){{
   const f=sf;
-  return D.filter(r=>f==="all"||( f==="Active"&&r[1]==="Active")||(f==="problem"&&(r[1]==="Past due"||r[1]==="Unpaid")));
+  return D.filter(r=>f==="all"||(f==="Active"&&r[1]==="Active")||(f==="problem"&&(r[1]==="Past due"||r[1]==="Unpaid")));
 }}
 
 function setMonth(i){{
   mi=i;
   const isYr=mi===-1;
   document.getElementById("mo-label").textContent=isYr?"Full Year 2026":MONTHS[mi];
-  document.getElementById("chart-sub").textContent=isYr?"Showing full year projection":"Showing "+MONTHS[mi];
   document.getElementById("sel-title").textContent=isYr?"Full Year 2026":MONTHS[mi];
   document.getElementById("tbl-title").textContent=isYr?"All customers":"Customers — "+MONTHS[mi];
   document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
@@ -577,48 +608,63 @@ function updateAll(){{
 function updateSelCard(){{
   const all=D;
   const problems=all.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
-  const cancelled=CANCELLED_D;
-  let expected,activeCount,problemAmt,churnAmt;
+  let expected,activeCount,problemAmt;
   if(mi===-1){{
     expected=all.filter(r=>r[1]==="Active").reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
     activeCount=all.filter(r=>r[1]==="Active"&&r[4].some(v=>v>0)).length;
     problemAmt=problems.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
-    churnAmt=cancelled.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
   }}else{{
     expected=all.filter(r=>r[1]==="Active").reduce((s,r)=>s+r[4][mi],0);
     activeCount=all.filter(r=>r[1]==="Active"&&r[4][mi]>0).length;
     problemAmt=problems.reduce((s,r)=>s+r[4][mi],0);
-    churnAmt=cancelled.reduce((s,r)=>s+r[4][mi],0);
   }}
   document.getElementById("sel-expected").textContent=expected>0?fmt(expected):"—";
   document.getElementById("sel-active-count").textContent=activeCount+" customers";
   document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
-  document.getElementById("sel-churn").textContent=churnAmt>0?"-"+fmtS(churnAmt):"$0";
 }}
 
 function renderChart(){{
   const base=byStatus();
   const mt=MONTHS.map((_,i)=>base.reduce((s,r)=>s+r[4][i],0));
   const yt=mt.reduce((a,v)=>a+v,0);
-  const mx=Math.max(...mt,yt)||1;
+  const yc=COLLECTED.reduce((a,v)=>a+v,0);
+  const mx=Math.max(...mt,...COLLECTED,yt,yc)||1;
   let html="";
-  mt.forEach((v,i)=>{{
-    const sel=mi===i,h=Math.max(4,Math.round((v/mx)*110));
-    const bg=sel?"var(--green-bar)":"var(--bg2)";
-    html+=`<div class="bc-col" onclick="setMonth(${{i}})">
-      <span class="bc-val${{sel?" sel":""}}">${{v>0?fmtS(v):"—"}}</span>
-      <div class="bc-bar" style="height:${{h}}px;background:${{bg}}"></div>
+  mt.forEach((exp,i)=>{{
+    const col=COLLECTED[i]||0;
+    const sel=mi===i;
+    const hExp=Math.max(3,Math.round((exp/mx)*110));
+    const hCol=Math.max(col>0?3:0,Math.round((col/mx)*110));
+    html+=`<div class="bc-col" onclick="setMonth(${{i}})" style="gap:2px">
+      <div style="display:flex;gap:2px;align-items:flex-end;width:100%">
+        <div title="Expected ${{fmtS(exp)}}" style="flex:1;height:${{hExp}}px;background:${{sel?"#4A8A16":"#B8DFA0"}};border-radius:3px 3px 0 0"></div>
+        <div title="Collected ${{fmtS(col)}}" style="flex:1;height:${{hCol}}px;background:${{sel?"#1565C0":"#90CAF9"}};border-radius:3px 3px 0 0"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;width:100%">
+        <span class="bc-val${{sel?" sel":""}}" style="font-size:9px">${{exp>0?fmtS(exp):"—"}}</span>
+        <span style="font-size:9px;color:${{sel?"#1565C0":"var(--text3)"}}">${{col>0?fmtS(col):"—"}}</span>
+      </div>
       <span class="bc-lbl${{sel?" sel":""}}">${{MO_SHORT[i]}}</span>
     </div>`;
   }});
-  const selYr=mi===-1,hYr=Math.max(4,Math.round((yt/mx)*110));
+  const selYr=mi===-1;
+  const hYt=Math.max(3,Math.round((yt/mx)*110));
+  const hYc=Math.max(yc>0?3:0,Math.round((yc/mx)*110));
   html+=`<div class="yr-divider"></div>
-  <div class="bc-col" onclick="setMonth(-1)">
-    <span class="bc-val${{selYr?" sel-yr":""}}">${{fmtS(yt)}}</span>
-    <div class="bc-bar" style="height:${{hYr}}px;background:${{selYr?"var(--blue)":"var(--blue-bar)"}};border-radius:3px 3px 0 0"></div>
+  <div class="bc-col" onclick="setMonth(-1)" style="gap:2px">
+    <div style="display:flex;gap:2px;align-items:flex-end;width:100%">
+      <div title="Expected ${{fmtS(yt)}}" style="flex:1;height:${{hYt}}px;background:${{selYr?"#4A8A16":"#B8DFA0"}};border-radius:3px 3px 0 0"></div>
+      <div title="Collected ${{fmtS(yc)}}" style="flex:1;height:${{hYc}}px;background:${{selYr?"#1565C0":"#90CAF9"}};border-radius:3px 3px 0 0"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;width:100%">
+      <span class="bc-val${{selYr?" sel":""}}" style="font-size:9px">${{fmtS(yt)}}</span>
+      <span style="font-size:9px;color:${{selYr?"#1565C0":"var(--text3)"}}">${{yc>0?fmtS(yc):"—"}}</span>
+    </div>
     <span class="bc-lbl${{selYr?" sel-yr":""}}">Year</span>
   </div>`;
   document.getElementById("barchart").innerHTML=html;
+  // update legend
+  document.getElementById("chart-sub").innerHTML='<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#4A8A16;display:inline-block"></span>Expected</span> &nbsp; <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#1565C0;display:inline-block"></span>Collected</span>';
 }}
 
 function getFiltered(){{
@@ -671,12 +717,16 @@ if __name__ == "__main__":
     metrics = compute_subscription_metrics(subs)
     print(f"  MRR: ${metrics['total_mrr']:,.0f} (monthly ${metrics['monthly_mrr']:,.0f} + annual equiv. ${metrics['annual_mrr']:,.0f})")
 
-    print("Fetching today\'s invoices...")
+    print("Fetching today's invoices...")
     today_invoices = fetch_today_invoices(subs)
     print(f"  {len(today_invoices)} invoice(s) paid in last 24h")
 
+    print("Fetching monthly collected amounts...")
+    monthly_collected = fetch_monthly_collected()
+    print(f"  Collected by month: {[round(x) for x in monthly_collected]}")
+
     synced = datetime.now(timezone.utc).strftime("%b %d, %Y at %H:%M UTC")
-    html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices)
+    html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected)
 
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(html)
