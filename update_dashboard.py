@@ -727,10 +727,10 @@ function _render(){{
   document.getElementById("next-pg").disabled=pg>=tp;
   document.getElementById("ct-lbl").textContent=f.length+" customers";
   document.getElementById("tbody").innerHTML=rows.map((r,i)=>{{
-    const annualTotal=r[4].reduce((a,x)=>a+x,0);
     const nextInv=r[5]||"—";
     const isProb=r[1]==="Past due"||r[1]==="Unpaid";
     const nextStyle=isProb?"color:var(--red);font-weight:500":"color:var(--text2)";
+    const annualTotal = r[2]==="Annual" ? r[3] : r[3]*12;
     return `<tr style="${{i===rows.length-1?"border-bottom:none":""}}">
       <td style="font-weight:500">${{r[0]}}</td>
       <td><span class="badge ${{BC[r[1]]||"b-unpaid"}}">${{r[1]}}</span></td>
