@@ -553,151 +553,183 @@ def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_in
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Floori.io — Stripe Revenue Dashboard</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<title>Floori.io — Revenue Dashboard</title>
 <style>
-  *,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+:root{{
+  --bg:#ffffff;--bg2:#f5f5f3;--bg3:#eeece6;
+  --text:#1a1a18;--text2:#6b6a65;--text3:#9e9d98;
+  --border:rgba(0,0,0,0.10);--border2:rgba(0,0,0,0.07);
+  --green:#3B6D11;--green-bg:#EAF3DE;--green-bar:#7EC242;
+  --red:#A32D2D;--red-bg:#FCEBEB;
+  --amber:#854F0B;--amber-bg:#FAEEDA;
+  --blue:#185FA5;--blue-bg:#E8F0FB;--blue-bar:#A8C4E0;
+  --gray:#5F5E5A;--gray-bg:#F1EFE8;
+  --stripe:#635BFF;
+  --r:8px;--rl:12px;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}}
+@media(prefers-color-scheme:dark){{
   :root{{
-    --bg:#ffffff;--bg2:#f5f5f3;--bg3:#eeece6;
-    --text:#1a1a18;--text2:#6b6a65;--text3:#9e9d98;
-    --border:rgba(0,0,0,0.12);--border2:rgba(0,0,0,0.08);
-    --green:#3B6D11;--green-bg:#EAF3DE;
-    --red:#A32D2D;--red-bg:#FCEBEB;
-    --amber:#854F0B;--amber-bg:#FAEEDA;
-    --gray:#5F5E5A;--gray-bg:#F1EFE8;
-    --stripe:#635BFF;
-    --radius:8px;--radius-lg:12px;
-    --font:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    --bg:#1c1c1a;--bg2:#242422;--bg3:#2c2c2a;
+    --text:#e8e6df;--text2:#9e9d98;--text3:#6b6a65;
+    --border:rgba(255,255,255,0.10);--border2:rgba(255,255,255,0.06);
+    --green:#9FE1CB;--green-bg:#085041;--green-bar:#4D9A2A;
+    --red:#F09595;--red-bg:#501313;
+    --amber:#FAC775;--amber-bg:#412402;
+    --blue:#7EB4E8;--blue-bg:#0D2A4A;--blue-bar:#2A5A8A;
+    --gray:#B4B2A9;--gray-bg:#2C2C2A;
   }}
-  @media(prefers-color-scheme:dark){{
-    :root{{
-      --bg:#1c1c1a;--bg2:#242422;--bg3:#2c2c2a;
-      --text:#e8e6df;--text2:#9e9d98;--text3:#6b6a65;
-      --border:rgba(255,255,255,0.12);--border2:rgba(255,255,255,0.07);
-      --green:#9FE1CB;--green-bg:#085041;
-      --red:#F09595;--red-bg:#501313;
-      --amber:#FAC775;--amber-bg:#412402;
-      --gray:#B4B2A9;--gray-bg:#2C2C2A;
-    }}
-  }}
-  body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:14px;min-height:100vh}}
-  .container{{max-width:1100px;margin:0 auto;padding:1.5rem}}
-  .topbar{{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;gap:1rem;flex-wrap:wrap}}
-  .topbar h1{{font-size:17px;font-weight:500;display:flex;align-items:center;gap:8px}}
-  .topbar h1 .si{{color:var(--stripe)}}
-  .topbar p{{font-size:12px;color:var(--text2);margin-top:3px}}
-  .top-right{{display:flex;align-items:center;gap:10px}}
-  .month-nav{{display:flex;align-items:center;gap:6px}}
-  .month-nav button,.btn{{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius);padding:6px 10px;cursor:pointer;color:var(--text);font-size:13px;transition:background .15s}}
-  .btn{{padding:6px 14px;display:inline-flex;align-items:center;gap:6px}}
-  .month-nav button:hover,.btn:hover{{background:var(--bg2)}}
-  .month-nav button:disabled{{opacity:.35;cursor:default}}
-  .month-label{{font-size:14px;font-weight:500;min-width:88px;text-align:center}}
-  .synced{{font-size:11px;color:var(--text3)}}
-  .metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1.5rem}}
-  .mc{{background:var(--bg2);border-radius:var(--radius);padding:1rem}}
-  .mc .lbl{{font-size:12px;color:var(--text2);margin-bottom:4px}}
-  .mc .val{{font-size:22px;font-weight:500}}
-  .mc .sub{{font-size:12px;color:var(--text2);margin-top:2px}}
-  .row2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.5rem}}
-  .card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--radius-lg);padding:1rem 1.25rem}}
-  .card-title{{font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px}}
-  .bar-row{{margin-bottom:12px}}
-  .bar-meta{{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}}
-  .bar-meta span:first-child{{color:var(--text2)}}
-  .pct{{color:var(--text3);font-weight:400}}
-  .bar-track{{height:8px;background:var(--bg2);border-radius:4px;overflow:hidden}}
-  .bar-fill{{height:100%;border-radius:4px;transition:width .4s ease}}
-  .sparkwrap{{display:flex;gap:4px;align-items:flex-end;height:110px;margin-bottom:6px}}
-  .spark-bar{{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}}
-  .spark-fill{{width:100%;border-radius:3px 3px 0 0;transition:background .2s}}
-  .spark-val{{font-size:9px;color:var(--text3);white-space:nowrap}}
-  .spark-val.active{{color:var(--green);font-weight:600}}
-  .spark-lbl{{font-size:10px;color:var(--text2)}}
-  .spark-lbl.active{{color:var(--green);font-weight:500}}
-  .spark-minmax{{display:flex;justify-content:space-between;font-size:11px;color:var(--text3)}}
-  .tbl-section{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--radius-lg);padding:1rem 1.25rem}}
-  .tbl-header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap}}
-  .tbl-controls{{display:flex;gap:8px;align-items:center}}
-  .tbl-controls input,.tbl-controls select{{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius);padding:5px 9px;font-size:13px;color:var(--text)}}
-  .tbl-controls input{{width:160px}}
-  .tbl-wrap{{overflow-x:auto;border-radius:var(--radius);border:0.5px solid var(--border2)}}
-  table{{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}}
-  thead th{{font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;padding:8px 12px;background:var(--bg2);border-bottom:0.5px solid var(--border2);text-align:left;white-space:nowrap}}
-  th.r,td.r{{text-align:right}}
-  tbody tr{{border-bottom:0.5px solid var(--border2);transition:background .1s}}
-  tbody tr:last-child{{border-bottom:none}}
-  tbody tr:hover{{background:var(--bg2)}}
-  tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-  .badge{{display:inline-flex;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}}
-  .b-active{{background:var(--green-bg);color:var(--green)}}
-  .b-pastdue{{background:var(--red-bg);color:var(--red)}}
-  .b-unpaid{{background:var(--amber-bg);color:var(--amber)}}
-  .b-cancelled{{background:var(--gray-bg);color:var(--gray)}}
-  .freq{{font-size:11px;background:var(--bg2);padding:1px 6px;border-radius:20px;color:var(--text2)}}
-  .amt-pos{{font-weight:500;font-variant-numeric:tabular-nums}}
-  .amt-neg{{font-weight:500;color:var(--red);font-variant-numeric:tabular-nums}}
-  .amt-zero{{color:var(--text3)}}
-  .pagination{{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--text2)}}
-  .pagination button{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--radius);padding:4px 10px;cursor:pointer;color:var(--text);font-size:12px}}
-  .pagination button:disabled{{opacity:.35;cursor:default}}
-  .pagination button:not(:disabled):hover{{background:var(--bg2)}}
-  #ct-lbl{{margin-left:auto;font-size:12px}}
-  @media(max-width:700px){{
-    .metrics{{grid-template-columns:repeat(2,1fr)}}
-    .row2{{grid-template-columns:1fr}}
-  }}
+}}
+body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:14px;min-height:100vh}}
+.wrap{{max-width:1120px;margin:0 auto;padding:1.5rem}}
+
+/* topbar */
+.topbar{{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.75rem;gap:1rem;flex-wrap:wrap}}
+.topbar h1{{font-size:16px;font-weight:500;display:flex;align-items:center;gap:8px;color:var(--text)}}
+.topbar h1 .si{{color:var(--stripe)}}
+.synced{{font-size:11px;color:var(--text3);margin-top:3px}}
+.mo-pill{{display:flex;align-items:center;gap:6px;background:var(--bg2);border:0.5px solid var(--border);border-radius:20px;padding:5px 14px;font-size:13px;font-weight:500}}
+.mo-pill span{{min-width:72px;text-align:center}}
+
+/* metric cards */
+.metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1.5rem}}
+.mc{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1rem}}
+.mc .lbl{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}}
+.mc .val{{font-size:24px;font-weight:500;line-height:1.1}}
+.mc .sub{{font-size:11px;color:var(--text3);margin-top:5px}}
+.mc .trend{{font-size:11px;margin-top:4px}}
+
+/* chart card */
+.chart-card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem;margin-bottom:1.5rem}}
+.chart-card .ct{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}}
+.chart-card .ct span{{font-size:12px;color:var(--text2);font-weight:400;text-transform:none;letter-spacing:0}}
+.bar-chart{{display:flex;gap:6px;align-items:flex-end;height:120px}}
+.bc-col{{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;transition:opacity .15s}}
+.bc-col:hover{{opacity:.8}}
+.bc-val{{font-size:9px;white-space:nowrap;color:var(--text3);transition:color .2s}}
+.bc-val.sel{{color:var(--green);font-weight:600}}
+.bc-val.sel-yr{{color:var(--blue);font-weight:600}}
+.bc-bar{{width:100%;border-radius:3px 3px 0 0;transition:background .2s}}
+.bc-lbl{{font-size:10px;color:var(--text3);transition:color .2s}}
+.bc-lbl.sel{{color:var(--green);font-weight:500}}
+.bc-lbl.sel-yr{{color:var(--blue);font-weight:500}}
+.yr-divider{{width:1px;background:var(--border);margin:0 2px;align-self:stretch}}
+
+/* 2-col */
+.row2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.5rem}}
+.card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem}}
+.card-title{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px}}
+
+/* kv list inside card */
+.kv{{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--border2);font-size:13px}}
+.kv:last-child{{border-bottom:none}}
+.kv .k{{color:var(--text2)}}
+.kv .v{{font-weight:500}}
+.kv .v.red{{color:var(--red)}}
+.kv .v.green{{color:var(--green)}}
+.kv .v.blue{{color:var(--blue)}}
+
+/* invoices table */
+.inv-table{{width:100%;border-collapse:collapse;font-size:13px}}
+.inv-table th{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;padding:7px 10px;background:var(--bg2);border-bottom:0.5px solid var(--border2);text-align:left;white-space:nowrap}}
+.inv-table th.r,.inv-table td.r{{text-align:right}}
+.inv-table td{{padding:8px 10px;border-bottom:0.5px solid var(--border2);vertical-align:middle}}
+.inv-table tr:last-child td{{border-bottom:none}}
+.inv-table tr:hover td{{background:var(--bg2)}}
+.inv-wrap{{border-radius:var(--r);border:0.5px solid var(--border2);overflow:hidden}}
+.empty{{text-align:center;color:var(--text3);font-size:13px;padding:2rem}}
+
+/* customer table */
+.tbl-section{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem}}
+.tbl-header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap}}
+.tbl-controls{{display:flex;gap:8px}}
+.tbl-controls input,.tbl-controls select{{background:var(--bg);border:0.5px solid var(--border);border-radius:var(--r);padding:5px 9px;font-size:13px;color:var(--text)}}
+.tbl-controls input{{width:155px}}
+.tbl-wrap{{overflow-x:auto;border-radius:var(--r);border:0.5px solid var(--border2)}}
+table{{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}}
+thead th{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;padding:8px 12px;background:var(--bg2);border-bottom:0.5px solid var(--border2);text-align:left;white-space:nowrap}}
+th.r,td.r{{text-align:right}}
+tbody tr{{border-bottom:0.5px solid var(--border2);transition:background .1s}}
+tbody tr:last-child{{border-bottom:none}}
+tbody tr:hover{{background:var(--bg2)}}
+tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.badge{{display:inline-flex;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}}
+.b-active{{background:var(--green-bg);color:var(--green)}}
+.b-pastdue{{background:var(--red-bg);color:var(--red)}}
+.b-unpaid{{background:var(--amber-bg);color:var(--amber)}}
+.freq{{font-size:11px;background:var(--bg2);padding:1px 6px;border-radius:20px;color:var(--text3)}}
+.pag{{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--text2)}}
+.pag button{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--r);padding:4px 10px;cursor:pointer;color:var(--text);font-size:12px}}
+.pag button:disabled{{opacity:.35;cursor:default}}
+.pag button:not(:disabled):hover{{background:var(--bg2)}}
+#ct-lbl{{margin-left:auto;font-size:12px}}
+@media(max-width:700px){{.metrics{{grid-template-columns:repeat(2,1fr)}}.row2{{grid-template-columns:1fr}}}}
 </style>
 </head>
 <body>
-<div class="container">
+<div class="wrap">
+
   <div class="topbar">
     <div>
-      <h1><span class="si">◈</span> Floori.io — Stripe Revenue Dashboard</h1>
-      <p class="synced">Last synced: {synced} &nbsp;·&nbsp; Auto-updated weekdays at 9:30 AM BRT</p>
+      <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
+      <p class="synced">Last synced: {synced} · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
-    <div class="top-right">
-      <div class="month-nav">
-        <button id="prev-mo" onclick="setMonth(mi-1)" disabled>&#8249;</button>
-        <span class="month-label" id="mo-label">May 2026</span>
-        <button id="next-mo" onclick="setMonth(mi+1)">&#8250;</button>
-      </div>
+    <div class="mo-pill">
+      <span id="mo-label">Full Year 2026</span>
     </div>
   </div>
 
   <div class="metrics">
-    <div class="mc"><div class="lbl">Total MRR</div><div class="val" style="color:var(--green)">${metrics["total_mrr"]:,.0f}</div><div class="sub">monthly + annual ÷ 12 (USD, active)</div></div>
-    <div class="mc"><div class="lbl">Monthly subscribers</div><div class="val">${metrics["monthly_mrr"]:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text2)">/mo</span></div><div class="sub">{metrics["monthly_count"]} active subscriptions</div></div>
-    <div class="mc"><div class="lbl">Annual subscribers</div><div class="val">${metrics["annual_arr"]:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text2)">/yr</span></div><div class="sub">{metrics["annual_count"]} active · ${metrics["annual_mrr"]:,.0f}/mo equiv.</div></div>
-    <div class="mc"><div class="lbl">Today's collections</div><div class="val" id="today-val" style="color:var(--green)">{today_total_fmt}</div><div class="sub">{today_count} transaction{"s" if today_count != 1 else ""} in last 24h</div></div>
+    <div class="mc">
+      <div class="lbl">Total MRR</div>
+      <div class="val" style="color:var(--green)">${metrics["total_mrr"]:,.0f}</div>
+      <div class="sub">active USD · monthly + annual ÷ 12</div>
+    </div>
+    <div class="mc">
+      <div class="lbl">Monthly revenue</div>
+      <div class="val">${metrics["monthly_mrr"]:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text3)">/mo</span></div>
+      <div class="sub">{metrics["monthly_count"]} monthly subscribers</div>
+    </div>
+    <div class="mc">
+      <div class="lbl">Annual revenue</div>
+      <div class="val">${metrics["annual_arr"]:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
+      <div class="sub">{metrics["annual_count"]} annual · ${metrics["annual_mrr"]:,.0f}/mo equiv.</div>
+    </div>
+    <div class="mc">
+      <div class="lbl">Collected today</div>
+      <div class="val" style="color:{'var(--green)' if today_total>0 else 'var(--text3)'}">{today_total_fmt}</div>
+      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} in last 24h</div>
+    </div>
   </div>
 
-  {today_section}
+  <div class="chart-card">
+    <div class="ct">
+      <span>Monthly cashflow — click to select · Year shows all</span>
+      <span id="chart-sub">Showing full year projection</span>
+    </div>
+    <div class="bar-chart" id="barchart"></div>
+  </div>
+
   <div class="row2">
     <div class="card">
-      <div class="card-title">Monthly overview — click month to filter · Year = all customers</div>
-      <div class="sparkwrap" id="sparkbars"></div>
-      <div class="spark-minmax"><span id="sp-min"></span><span id="sp-max"></span></div>
+      <div class="card-title" id="sel-title">Selected period</div>
+      <div class="kv"><span class="k">Expected revenue</span><span class="v green" id="sel-expected">—</span></div>
+      <div class="kv"><span class="k">Active paying customers</span><span class="v" id="sel-active-count">—</span></div>
+      <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
+      <div class="kv"><span class="k">Lost to churn / cancelled</span><span class="v red" id="sel-churn">—</span></div>
     </div>
     <div class="card">
-      <div class="card-title">Status breakdown + projection</div>
-      <div id="status-bars"></div>
-      <div style="border-top:0.5px solid var(--border2);margin-top:14px;padding-top:12px;display:flex;justify-content:space-between;font-size:12px;color:var(--text2)">
-        <span>Projected this month</span>
-        <span id="m-expected" style="font-weight:500;color:var(--text)">—</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-top:6px">
-        <span>Problem accounts value</span>
-        <span id="m-problem" style="font-weight:500;color:var(--red)">—</span>
-      </div>
+      <div class="card-title">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h)</span></div>
+      {"<div class='inv-wrap'><table class='inv-table'><thead><tr><th>Customer</th><th class='r'>Amount</th><th>Time</th></tr></thead><tbody>" + today_rows_html + "</tbody></table></div>" if today_invoices else "<div class='empty'>No payments recorded in the last 24h</div>"}
     </div>
   </div>
 
   <div class="tbl-section">
     <div class="tbl-header">
-      <div class="card-title" id="tbl-title" style="margin-bottom:0">Customers — May 2026</div>
+      <div class="card-title" id="tbl-title" style="margin-bottom:0">All customers</div>
       <div class="tbl-controls">
-        <input id="search" placeholder="Search customer…" oninput="renderTable()">
+        <input id="search" placeholder="Search…" oninput="renderTable()">
         <select id="flt" onchange="updateAll()">
           <option value="all">All</option>
           <option value="Active">Active</option>
@@ -708,137 +740,112 @@ def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_in
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th style="width:30%">Customer</th>
+          <th style="width:33%">Customer</th>
           <th style="width:13%">Status</th>
-          <th style="width:16%" id="col-month">Next invoice</th>
+          <th style="width:16%">Next invoice</th>
           <th style="width:13%" class="r col-annual">Annual total</th>
           <th style="width:13%" class="r">Base amount</th>
-          <th style="width:10%">Interval</th>
+          <th style="width:9%">Interval</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
-    <div class="pagination">
-      <button id="prev-pg" onclick="go(-1)" disabled>&#8592; Prev</button>
+    <div class="pag">
+      <button id="prev-pg" onclick="go(-1)" disabled>← Prev</button>
       <span id="pg-info">Page 1 of 1</span>
-      <button id="next-pg" onclick="go(1)">Next &#8594;</button>
+      <button id="next-pg" onclick="go(1)">Next →</button>
       <span id="ct-lbl"></span>
     </div>
   </div>
-</div>
 
+</div>
 <script>
 const MONTHS=["May 2026","Jun 2026","Jul 2026","Aug 2026","Sep 2026","Oct 2026","Nov 2026","Dec 2026"];
-const DEDUCTIONS={deductions_js};
+const MO_SHORT=["May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const D={rows_js}.filter(r=>r[1]!=="Cancelled");
+const CANCELLED_D={rows_js}.filter(r=>r[1]==="Cancelled");
 const BC={{"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"}};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{{style:"currency",currency:"USD",maximumFractionDigits:0}}).format(Math.abs(v));
-const fmtShort=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
+const fmtS=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
 
-// mi = 0..7 for months, -1 = "Year" (all customers, aggregated)
-let mi=0, pg=1, statusFilter="all";
+let mi=0,pg=1,sf="all"; // mi: 0-7=month, -1=year
 const PS=15;
 
-function getFilteredByStatus(){{
-  const f=statusFilter;
-  return D.filter(r=>{{
-    if(f==="all") return true;
-    if(f==="Active") return r[1]==="Active";
-    if(f==="problem") return r[1]==="Past due"||r[1]==="Unpaid";
-    return true;
-  }});
+function byStatus(){{
+  const f=sf;
+  return D.filter(r=>f==="all"||( f==="Active"&&r[1]==="Active")||(f==="problem"&&(r[1]==="Past due"||r[1]==="Unpaid")));
 }}
 
 function setMonth(i){{
   mi=i;
-  document.getElementById("prev-mo").disabled = mi<=0;
-  document.getElementById("next-mo").disabled = mi===7;
-  if(mi===-1){{
-    document.getElementById("mo-label").textContent="2026";
-    document.getElementById("tbl-title").textContent="All customers — Full Year 2026";
-  }} else {{
-    document.getElementById("mo-label").textContent=MONTHS[mi];
-    document.getElementById("tbl-title").textContent="Customers with revenue — "+MONTHS[mi];
-  }}
-  // show/hide Annual Total column
-  const annualCols=document.querySelectorAll(".col-annual");
-  annualCols.forEach(el=>el.style.display=mi===-1?"none":"");
+  const isYr=mi===-1;
+  document.getElementById("mo-label").textContent=isYr?"Full Year 2026":MONTHS[mi];
+  document.getElementById("chart-sub").textContent=isYr?"Showing full year projection":"Showing "+MONTHS[mi];
+  document.getElementById("sel-title").textContent=isYr?"Full Year 2026":MONTHS[mi];
+  document.getElementById("tbl-title").textContent=isYr?"All customers":"Customers — "+MONTHS[mi];
+  document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
   updateAll();
 }}
 
 function updateAll(){{
-  statusFilter=document.getElementById("flt").value;
-  updateMetrics();
-  updateSpark();
-  pg=1;
-  _render();
+  sf=document.getElementById("flt").value;
+  updateSelCard();
+  renderChart();
+  pg=1; _render();
 }}
 
-function updateMetrics(){{
-  const base=getFilteredByStatus();
-  let expected, problems, problemAmt;
+function updateSelCard(){{
+  const all=D;
+  const problems=all.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
+  const cancelled=CANCELLED_D;
+  let expected,activeCount,problemAmt,churnAmt;
   if(mi===-1){{
-    expected=base.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
-    problems=base.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
+    expected=all.filter(r=>r[1]==="Active").reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
+    activeCount=all.filter(r=>r[1]==="Active"&&r[4].some(v=>v>0)).length;
     problemAmt=problems.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
-  }} else {{
-    expected=base.reduce((s,r)=>s+r[4][mi],0);
-    problems=base.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
+    churnAmt=cancelled.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
+  }}else{{
+    expected=all.filter(r=>r[1]==="Active").reduce((s,r)=>s+r[4][mi],0);
+    activeCount=all.filter(r=>r[1]==="Active"&&r[4][mi]>0).length;
     problemAmt=problems.reduce((s,r)=>s+r[4][mi],0);
+    churnAmt=cancelled.reduce((s,r)=>s+r[4][mi],0);
   }}
-  document.getElementById("m-expected").textContent=expected>0?fmt(expected):"—";
-  document.getElementById("m-problem").textContent=problemAmt>0?fmt(problemAmt):problems.length+" accounts";
+  document.getElementById("sel-expected").textContent=expected>0?fmt(expected):"—";
+  document.getElementById("sel-active-count").textContent=activeCount+" customers";
+  document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
+  document.getElementById("sel-churn").textContent=churnAmt>0?"-"+fmtS(churnAmt):"$0";
 }}
 
-function updateSpark(){{
-  const base=getFilteredByStatus();
-  const monthly_totals=MONTHS.map((_,i)=>base.reduce((s,r)=>s+r[4][i],0));
-  const year_total=monthly_totals.reduce((a,v)=>a+v,0);
-  const all_vals=[...monthly_totals, year_total];
-  const max=Math.max(...all_vals)||1;
-  const labels=["May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Year"];
-
-  // 8 month bars + 1 year bar
-  const bars=[...monthly_totals.map((v,i)=>{{
-    const active=mi===i;
-    const h=Math.round((v/max)*72);
-    return `<div class="spark-bar" onclick="setMonth(${{i}})">
-      <span class="spark-val${{active?" active":""}}">${{v>0?fmtShort(v):"—"}}</span>
-      <div class="spark-fill" style="height:${{h}}px;background:${{active?"#3B6D11":"#C0DD97"}}"></div>
-      <span class="spark-lbl${{active?" active":""}}">${{labels[i]}}</span>
+function renderChart(){{
+  const base=byStatus();
+  const mt=MONTHS.map((_,i)=>base.reduce((s,r)=>s+r[4][i],0));
+  const yt=mt.reduce((a,v)=>a+v,0);
+  const mx=Math.max(...mt,yt)||1;
+  let html="";
+  mt.forEach((v,i)=>{{
+    const sel=mi===i,h=Math.max(4,Math.round((v/mx)*100));
+    const bg=sel?"var(--green-bar)":"var(--bg2)";
+    html+=`<div class="bc-col" onclick="setMonth(${{i}})">
+      <span class="bc-val${{sel?" sel":""}}">${{v>0?fmtS(v):"—"}}</span>
+      <div class="bc-bar" style="height:${{h}}px;background:${{bg}}"></div>
+      <span class="bc-lbl${{sel?" sel":""}}">${{MO_SHORT[i]}}</span>
     </div>`;
-  }}),
-  // Year column — slightly different style
-  (()=>{{
-    const active=mi===-1;
-    const h=Math.round((year_total/max)*72);
-    return `<div class="spark-bar" onclick="setMonth(-1)" style="border-left:1px solid var(--border2);padding-left:4px;margin-left:2px">
-      <span class="spark-val${{active?" active":""}}" style="font-weight:600">${{fmtShort(year_total)}}</span>
-      <div class="spark-fill" style="height:${{h}}px;background:${{active?"#185FA5":"#A8C4E0"}}"></div>
-      <span class="spark-lbl${{active?" active":""}}" style="${{active?"color:#185FA5;font-weight:500":""}}">${{labels[8]}}</span>
-    </div>`;
-  }})()];
-
-  document.getElementById("sparkbars").innerHTML=bars.join("");
-  document.getElementById("sp-min").textContent="";
-  document.getElementById("sp-max").textContent="";
-
-  const total=base.length||1;
-  const sb=[
-    {{label:"Active",count:base.filter(r=>r[1]==="Active").length,color:"#639922"}},
-    {{label:"Past due",count:base.filter(r=>r[1]==="Past due").length,color:"#E24B4A"}},
-    {{label:"Unpaid",count:base.filter(r=>r[1]==="Unpaid").length,color:"#BA7517"}},
-  ];
-  document.getElementById("status-bars").innerHTML=sb.map(b=>`<div class="bar-row"><div class="bar-meta"><span>${{b.label}}</span><span>${{b.count}} <span class="pct">(${{Math.round(b.count/total*100)}}%)</span></span></div><div class="bar-track"><div class="bar-fill" style="width:${{Math.round(b.count/total*100)}}%;background:${{b.color}}"></div></div></div>`).join("");
+  }});
+  const selYr=mi===-1,hYr=Math.max(4,Math.round((yt/mx)*100));
+  html+=`<div class="yr-divider"></div>
+  <div class="bc-col" onclick="setMonth(-1)">
+    <span class="bc-val${{selYr?" sel-yr":""}}">${{fmtS(yt)}}</span>
+    <div class="bc-bar" style="height:${{hYr}}px;background:${{selYr?"var(--blue)":"var(--blue-bar)"}};border-radius:3px 3px 0 0"></div>
+    <span class="bc-lbl${{selYr?" sel-yr":""}}">Year</span>
+  </div>`;
+  document.getElementById("barchart").innerHTML=html;
 }}
 
 function getFiltered(){{
   const q=document.getElementById("search").value.toLowerCase();
-  const base=getFilteredByStatus();
-  // In month view: only show customers with revenue in that month
-  // In year view: show all
-  const byMonth = mi>=0 ? base.filter(r=>r[4][mi]>0) : base;
-  return byMonth.filter(r=>!q||r[0].toLowerCase().includes(q));
+  const base=byStatus();
+  const byM=mi>=0?base.filter(r=>r[4][mi]>0):base;
+  return byM.filter(r=>!q||r[0].toLowerCase().includes(q));
 }}
 
 function renderTable(){{pg=1;_render();}}
@@ -850,21 +857,20 @@ function _render(){{
   document.getElementById("next-pg").disabled=pg>=tp;
   document.getElementById("ct-lbl").textContent=f.length+" customers";
   document.getElementById("tbody").innerHTML=rows.map((r,i)=>{{
-    const nextInv=r[5]||"—";
-    const isProb=r[1]==="Past due"||r[1]==="Unpaid";
-    const nextStyle=isProb?"color:var(--red);font-weight:500":"color:var(--text2)";
-    const annualTotal = r[2]==="Annual" ? r[3] : r[3]*12;
-    return `<tr style="${{i===rows.length-1?"border-bottom:none":""}}">
+    const prob=r[1]==="Past due"||r[1]==="Unpaid";
+    const annualTotal=r[2]==="Annual"?r[3]:r[3]*12;
+    return `<tr>
       <td style="font-weight:500">${{r[0]}}</td>
       <td><span class="badge ${{BC[r[1]]||"b-unpaid"}}">${{r[1]}}</span></td>
-      <td style="${{nextStyle}};font-size:12px">${{nextInv}}</td>
+      <td style="font-size:12px;color:${{prob?"var(--red)":"var(--text2)"}};font-weight:${{prob?500:400}}">${{r[5]||"—"}}</td>
       <td class="r col-annual" style="color:var(--text2)">${{annualTotal>0?fmt(annualTotal):"—"}}</td>
       <td class="r" style="color:var(--text2)">$${{r[3].toLocaleString()}}</td>
       <td><span class="freq">${{r[2]}}</span></td>
     </tr>`;
   }}).join("");
 }}
-setMonth(0);
+
+setMonth(-1);
 </script>
 </body>
 </html>"""
