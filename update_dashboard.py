@@ -373,9 +373,11 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
   .pct{{color:var(--text3);font-weight:400}}
   .bar-track{{height:8px;background:var(--bg2);border-radius:4px;overflow:hidden}}
   .bar-fill{{height:100%;border-radius:4px;transition:width .4s ease}}
-  .sparkwrap{{display:flex;gap:4px;align-items:flex-end;height:90px;margin-bottom:6px}}
-  .spark-bar{{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}}
+  .sparkwrap{{display:flex;gap:4px;align-items:flex-end;height:110px;margin-bottom:6px}}
+  .spark-bar{{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}}
   .spark-fill{{width:100%;border-radius:3px 3px 0 0;transition:background .2s}}
+  .spark-val{{font-size:9px;color:var(--text3);white-space:nowrap}}
+  .spark-val.active{{color:var(--green);font-weight:600}}
   .spark-lbl{{font-size:10px;color:var(--text2)}}
   .spark-lbl.active{{color:var(--green);font-weight:500}}
   .spark-minmax{{display:flex;justify-content:space-between;font-size:11px;color:var(--text3)}}
@@ -452,15 +454,14 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
       <div class="card-title" id="tbl-title" style="margin-bottom:0">Customers — May 2026</div>
       <div class="tbl-controls">
         <input id="search" placeholder="Search customer…" oninput="renderTable()">
-        <select id="flt" onchange="renderTable()">
+        <select id="flt" onchange="updateAll()">
           <option value="all">All</option>
-          <option value="has-revenue">Has revenue</option>
-          <option value="no-revenue">No revenue this month</option>
-          <option value="problem">Problem accounts</option>
           <option value="Active">Active</option>
           <option value="Past due">Past due</option>
           <option value="Unpaid">Unpaid</option>
-          <option value="Cancelled">Canceled</option>
+          <option value="has-revenue">Has revenue this month</option>
+          <option value="no-revenue">No revenue this month</option>
+          <option value="problem">Problem accounts</option>
         </select>
       </div>
     </div>
@@ -487,15 +488,29 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
 
 <script>
 const MONTHS=["May 2026","Jun 2026","Jul 2026","Aug 2026","Sep 2026","Oct 2026","Nov 2026","Dec 2026"];
-const TOTALS={totals_js};
-const ACTIVE_TOT={active_js};
-const PROBLEM_TOT={problem_js};
 const DEDUCTIONS={deductions_js};
-const D={rows_js};
-const BC={{"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid","Cancelled":"b-cancelled"}};
+// Exclude cancelled from the dataset entirely
+const D={rows_js}.filter(r=>r[1]!=="Cancelled");
+const BC={{"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"}};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{{style:"currency",currency:"USD",maximumFractionDigits:0}}).format(Math.abs(v));
 const fmtShort=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
-let mi=0,pg=1;const PS=15;
+let mi=0,pg=1,statusFilter="all";const PS=15;
+
+// Returns only the rows matching current status filter
+function getFilteredByStatus(){{
+  const f=statusFilter;
+  return D.filter(r=>{{
+    if(f==="all") return true;
+    if(f==="Active") return r[1]==="Active";
+    if(f==="Past due") return r[1]==="Past due";
+    if(f==="Unpaid") return r[1]==="Unpaid";
+    if(f==="problem") return r[1]==="Past due"||r[1]==="Unpaid";
+    if(f==="has-revenue") return r[4][mi]>0;
+    if(f==="no-revenue") return r[4][mi]===0;
+    return true;
+  }});
+}}
+
 function setMonth(i){{
   mi=Math.max(0,Math.min(7,i));
   document.getElementById("prev-mo").disabled=mi===0;
@@ -503,44 +518,64 @@ function setMonth(i){{
   document.getElementById("mo-label").textContent=MONTHS[mi];
   document.getElementById("col-month").textContent=MONTHS[mi];
   document.getElementById("tbl-title").textContent="Customers — "+MONTHS[mi];
-  updateMetrics();updateSpark();pg=1;renderTable();
+  updateAll();
 }}
+
+function updateAll(){{
+  statusFilter=document.getElementById("flt").value;
+  updateMetrics();
+  updateSpark();
+  pg=1;
+  _render();
+}}
+
 function updateMetrics(){{
-  document.getElementById("m-expected").textContent=fmtShort(TOTALS[mi]);
-  const ac=D.filter(r=>r[4][mi]>0&&r[1]==="Active").length;
-  document.getElementById("m-active").textContent=fmtShort(ACTIVE_TOT[mi]);
-  document.getElementById("m-active-sub").textContent=ac+" customers with revenue";
-  document.getElementById("m-problem").textContent=fmtShort(PROBLEM_TOT[mi]);
+  const base=getFilteredByStatus();
+  const expected=base.reduce((s,r)=>s+r[4][mi],0);
+  const activePaying=base.filter(r=>r[1]==="Active"&&r[4][mi]>0);
+  const problems=base.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
+  const problemAmt=problems.reduce((s,r)=>s+r[4][mi],0);
+  document.getElementById("m-expected").textContent=fmtShort(expected);
+  document.getElementById("m-active").textContent=fmtShort(activePaying.reduce((s,r)=>s+r[4][mi],0));
+  document.getElementById("m-active-sub").textContent=activePaying.length+" customers with revenue";
+  document.getElementById("m-problem").textContent=fmtShort(Math.abs(problemAmt)||problems.length);
   const d=DEDUCTIONS[mi];
   document.getElementById("m-deductions").textContent=d<0?"-"+fmtShort(Math.abs(d)):"$0";
 }}
+
 function updateSpark(){{
-  const max=Math.max(...TOTALS),min=Math.min(...TOTALS);
-  document.getElementById("sp-min").textContent=fmtShort(min);
-  document.getElementById("sp-max").textContent=fmtShort(max);
+  const base=getFilteredByStatus();
+  // Compute totals per month for current filter
+  const filtered_totals=MONTHS.map((_,i)=>base.reduce((s,r)=>s+r[4][i],0));
+  const max=Math.max(...filtered_totals)||1;
   const labels=["May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  document.getElementById("sparkbars").innerHTML=TOTALS.map((v,i)=>{{
-    const h=Math.round((v/max)*82),active=i===mi;
-    return `<div class="spark-bar" onclick="setMonth(${{i}})"><div class="spark-fill" style="height:${{h}}px;background:${{active?"#3B6D11":"#C0DD97"}}"></div><span class="spark-lbl${{active?" active":""}}">${{labels[i]}}</span></div>`;
+  document.getElementById("sparkbars").innerHTML=filtered_totals.map((v,i)=>{{
+    const h=Math.round((v/max)*72),active=i===mi;
+    const valLabel=v>0?fmtShort(v):"—";
+    return `<div class="spark-bar" onclick="setMonth(${{i}})">
+      <span class="spark-val${{active?" active":""}}">${{valLabel}}</span>
+      <div class="spark-fill" style="height:${{h}}px;background:${{active?"#3B6D11":"#C0DD97"}}"></div>
+      <span class="spark-lbl${{active?" active":""}}">${{labels[i]}}</span>
+    </div>`;
   }}).join("");
-  const total=D.length||1;
+  document.getElementById("sp-min").textContent="";
+  document.getElementById("sp-max").textContent="";
+
+  // Status breakdown based on filter
+  const total=base.length||1;
   const sb=[
-    {{label:"Active",count:D.filter(r=>r[1]==="Active").length,color:"#639922"}},
-    {{label:"Past due",count:D.filter(r=>r[1]==="Past due").length,color:"#E24B4A"}},
-    {{label:"Unpaid",count:D.filter(r=>r[1]==="Unpaid").length,color:"#BA7517"}},
-    {{label:"Cancelled",count:D.filter(r=>r[1]==="Cancelled").length,color:"#888780"}},
+    {{label:"Active",count:base.filter(r=>r[1]==="Active").length,color:"#639922"}},
+    {{label:"Past due",count:base.filter(r=>r[1]==="Past due").length,color:"#E24B4A"}},
+    {{label:"Unpaid",count:base.filter(r=>r[1]==="Unpaid").length,color:"#BA7517"}},
   ];
   document.getElementById("status-bars").innerHTML=sb.map(b=>`<div class="bar-row"><div class="bar-meta"><span>${{b.label}}</span><span>${{b.count}} <span class="pct">(${{Math.round(b.count/total*100)}}%)</span></span></div><div class="bar-track"><div class="bar-fill" style="width:${{Math.round(b.count/total*100)}}%;background:${{b.color}}"></div></div></div>`).join("");
 }}
+
 function getFiltered(){{
   const q=document.getElementById("search").value.toLowerCase();
-  const f=document.getElementById("flt").value;
-  return D.filter(r=>{{
-    const v=r[4][mi];
-    const mf=f==="all"||(f==="has-revenue"&&v>0)||(f==="no-revenue"&&v===0)||(f==="problem"&&(r[1]==="Past due"||r[1]==="Unpaid"))||r[1]===f;
-    return mf&&(!q||r[0].toLowerCase().includes(q));
-  }});
+  return getFilteredByStatus().filter(r=>!q||r[0].toLowerCase().includes(q));
 }}
+
 function renderTable(){{pg=1;_render();}}
 function go(d){{const tp=Math.ceil(getFiltered().length/PS);pg=Math.max(1,Math.min(tp,pg+d));_render();}}
 function _render(){{
@@ -551,7 +586,7 @@ function _render(){{
   document.getElementById("ct-lbl").textContent=f.length+" customers";
   document.getElementById("tbody").innerHTML=rows.map((r,i)=>{{
     const v=r[4][mi],ac=v>0?"amt-pos":v<0?"amt-neg":"amt-zero";
-    return `<tr style="${{i===rows.length-1?"border-bottom:none":""}}"><td style="font-weight:500">${{r[0]}}</td><td><span class="badge ${{BC[r[1]]||"b-cancelled"}}">${{r[1]}}</span></td><td class="r ${{ac}}">${{fmt(v)}}</td><td class="r" style="color:var(--text2)">$${{r[3].toLocaleString()}}</td><td><span class="freq">${{r[2]}}</span></td></tr>`;
+    return `<tr style="${{i===rows.length-1?"border-bottom:none":""}}"><td style="font-weight:500">${{r[0]}}</td><td><span class="badge ${{BC[r[1]]||"b-unpaid"}}">${{r[1]}}</span></td><td class="r ${{ac}}">${{fmt(v)}}</td><td class="r" style="color:var(--text2)">$${{r[3].toLocaleString()}}</td><td><span class="freq">${{r[2]}}</span></td></tr>`;
   }}).join("");
 }}
 setMonth(0);
