@@ -209,10 +209,11 @@ def fetch_all_subscriptions():
 
 
 def build_customer_map(subs):
-    """Returns {email: {name, status, interval, amount, currency}}"""
-    result = {}
+    """Returns (by_email, by_name) — two indexes for the same customer data."""
+    by_email = {}
+    by_name  = {}  # normalized lowercase name → info
+
     for sub in subs:
-        # customer may be an expanded object or just a string ID
         cust = sub.customer
         if isinstance(cust, str):
             email, name = "", ""
@@ -223,7 +224,7 @@ def build_customer_map(subs):
         if not name:
             name = EMAIL_TO_NAME.get(email, "") or EMAIL_TO_NAME.get(email.lower(), "")
 
-        # pick the first subscription item
+        # subscription item details
         items_data = getattr(getattr(sub, "items", None), "data", []) or []
         item = items_data[0] if items_data else None
 
@@ -247,40 +248,59 @@ def build_customer_map(subs):
         try:
             sub_dict = sub.to_dict()
             ts = None
-            items_data = sub_dict.get("items", {}).get("data", [])
-            if items_data:
-                ts = items_data[0].get("current_period_end")
+            sd_items = sub_dict.get("items", {}).get("data", [])
+            if sd_items:
+                ts = sd_items[0].get("current_period_end")
+            if not ts:
+                ts = sub_dict.get("billing_cycle_anchor")
             if ts:
                 next_invoice_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d, %Y")
         except Exception:
             next_invoice_str = ""
 
-        # consolidate multiple subs per email — keep most severe status
         priority = {"Past due": 3, "Unpaid": 2, "Cancelled": 1, "Active": 0}
-        if email in result:
-            existing = result[email]
-            if priority.get(label, 0) > priority.get(existing["status"], 0):
-                existing["status"] = label
-                existing["next_invoice"] = next_invoice_str
-            existing["amount"] = max(existing["amount"], amount)
-        else:
-            result[email] = {
-                "name":         name or email,
-                "email":        email,
-                "status":       label,
-                "interval":     interval,
-                "amount":       amount,
-                "currency":     currency,
-                "next_invoice": next_invoice_str,
-            }
-    return result
+        info = {
+            "name":         name or email,
+            "email":        email,
+            "status":       label,
+            "interval":     interval,
+            "amount":       amount,
+            "currency":     currency,
+            "next_invoice": next_invoice_str,
+        }
+
+        # index by email
+        if email:
+            if email in by_email:
+                existing = by_email[email]
+                if priority.get(label, 0) > priority.get(existing["status"], 0):
+                    existing["status"] = label
+                    existing["next_invoice"] = next_invoice_str
+                existing["amount"] = max(existing["amount"], amount)
+            else:
+                by_email[email] = info
+
+        # index by normalized name
+        if name:
+            nname = name.strip().lower()
+            if nname not in by_name:
+                by_name[nname] = info
+            else:
+                existing = by_name[nname]
+                if priority.get(label, 0) > priority.get(existing["status"], 0):
+                    existing["status"] = label
+                    existing["next_invoice"] = next_invoice_str
+                existing["amount"] = max(existing["amount"], amount)
+
+    return by_email, by_name
 
 
 def build_rows(customer_map):
+    by_email, by_name = customer_map
     rows = []
     seen_names = set()
 
-    for email, info in customer_map.items():
+    for email, info in by_email.items():
         name = info["name"]
         if not name or name in seen_names:
             continue
@@ -295,9 +315,22 @@ def build_rows(customer_map):
             info.get("next_invoice", ""),
         ])
 
-    # add any CSV names not found in Stripe (keep their last known status)
+    # CSV names not matched by email — try name-based lookup first
     for csv_name in MONTHLY_PROJECTIONS:
-        if csv_name not in seen_names:
+        if csv_name in seen_names:
+            continue
+        seen_names.add(csv_name)
+        stripe_info = by_name.get(csv_name.strip().lower())
+        if stripe_info:
+            rows.append([
+                csv_name,
+                stripe_info["status"],
+                stripe_info["interval"],
+                round(stripe_info["amount"] / 100) if stripe_info["currency"] == "usd" else 0,
+                MONTHLY_PROJECTIONS[csv_name],
+                stripe_info.get("next_invoice", ""),
+            ])
+        else:
             rows.append([csv_name, "Active", "Annual", 0, MONTHLY_PROJECTIONS[csv_name], ""])
 
     rows.sort(key=lambda r: r[3], reverse=True)
@@ -652,8 +685,8 @@ if __name__ == "__main__":
     print(f"  {len(subs)} subscriptions fetched")
 
     customer_map = build_customer_map(subs)
-    dated = sum(1 for v in customer_map.values() if v.get("next_invoice"))
-    print(f"  {dated}/{len(customer_map)} customers have a next invoice date")
+    dated = sum(1 for v in customer_map[0].values() if v.get("next_invoice"))
+    print(f"  {dated}/{len(customer_map[0])} customers have a next invoice date")
     rows = build_rows(customer_map)
     totals, active_tot, problem_tot = compute_totals(rows)
 
