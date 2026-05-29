@@ -423,12 +423,130 @@ def compute_totals(rows):
     )
 
 
-def render_html(rows, totals, active_tot, problem_tot, synced):
-    rows_js = json.dumps(rows, ensure_ascii=False)
-    totals_js = json.dumps(totals)
-    active_js = json.dumps(active_tot)
-    problem_js = json.dumps(problem_tot)
-    deductions_js = json.dumps([-2616.45, 0, 0, 0, 0, 0, 0, 0])
+def compute_subscription_metrics(subs):
+    """Compute MRR and ARR breakdown from live Stripe subscription data."""
+    monthly_mrr = 0.0
+    annual_arr  = 0.0
+    monthly_count = 0
+    annual_count  = 0
+
+    for sub in subs:
+        if stripe_status_to_label(sub.status) != "Active":
+            continue
+        try:
+            sub_dict = sub.to_dict()
+            items = sub_dict.get("items", {}).get("data", [])
+            if not items:
+                continue
+            price    = items[0].get("price", {}) or {}
+            amount   = price.get("unit_amount", 0) or 0
+            currency = (price.get("currency", "usd") or "usd").lower()
+            interval = (price.get("recurring", {}) or {}).get("interval", "month")
+            if currency != "usd" or not amount:
+                continue
+            if interval == "year":
+                annual_arr  += amount / 100
+                annual_count += 1
+            else:
+                monthly_mrr += amount / 100
+                monthly_count += 1
+        except Exception:
+            continue
+
+    return {
+        "monthly_mrr":    round(monthly_mrr, 2),
+        "annual_arr":     round(annual_arr, 2),
+        "annual_mrr":     round(annual_arr / 12, 2),
+        "total_mrr":      round(monthly_mrr + annual_arr / 12, 2),
+        "monthly_count":  monthly_count,
+        "annual_count":   annual_count,
+    }
+
+
+def fetch_today_invoices(by_email, by_name):
+    """Fetch invoices paid in the last 24h using Stripe Events API (filters by payment time, not creation time)."""
+    import time
+    since = int(time.time()) - 86400
+    results = []
+    try:
+        params = {
+            "type": "invoice.payment_succeeded",
+            "limit": 100,
+            "created": {"gte": since},
+        }
+        while True:
+            page = stripe.Event.list(**params)
+            for event in page.data:
+                try:
+                    inv_dict = event.to_dict().get("data", {}).get("object", {})
+                    amount   = (inv_dict.get("amount_paid") or 0) / 100
+                    currency = (inv_dict.get("currency") or "usd").upper()
+                    created  = event.to_dict().get("created", 0)
+                    time_str = datetime.fromtimestamp(int(created), tz=timezone.utc).strftime("%H:%M UTC") if created else ""
+
+                    # resolve customer name
+                    cust_id = inv_dict.get("customer", "")
+                    cname   = inv_dict.get("customer_name") or ""
+                    email   = inv_dict.get("customer_email") or ""
+                    if not cname and email:
+                        info  = by_email.get(email) or _fuzzy_match(email, by_name) or {}
+                        cname = info.get("name", "") or EMAIL_TO_NAME.get(email, "")
+                    if not cname:
+                        cname = email or cust_id or "Unknown"
+
+                    if amount > 0:
+                        results.append({
+                            "name":     cname,
+                            "amount":   amount,
+                            "currency": currency,
+                            "time":     time_str,
+                        })
+                except Exception:
+                    continue
+            if not page.has_more:
+                break
+            params["starting_after"] = page.data[-1].id
+    except Exception as e:
+        print(f"  Warning: could not fetch today's invoices: {e}")
+
+    results.sort(key=lambda x: x["time"], reverse=True)
+    return results
+
+
+def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices):
+    rows_js          = json.dumps(rows, ensure_ascii=False)
+    totals_js        = json.dumps(totals)
+    active_js        = json.dumps(active_tot)
+    problem_js       = json.dumps(problem_tot)
+    deductions_js    = json.dumps([-2616.45, 0, 0, 0, 0, 0, 0, 0])
+    metrics_js       = json.dumps(metrics)
+    today_js         = json.dumps(today_invoices, ensure_ascii=False)
+    today_total      = sum(i["amount"] for i in today_invoices if i["currency"] == "USD")
+    today_count      = len(today_invoices)
+    today_rows_html  = "".join(
+        f'<tr style="border-bottom:0.5px solid var(--border2)">'
+        f'<td style="padding:9px 12px;font-weight:500">{i["name"]}</td>'
+        f'<td style="padding:9px 12px;text-align:right;font-variant-numeric:tabular-nums">'
+        f'{i["currency"]} ${i["amount"]:,.2f}</td>'
+        f'<td style="padding:9px 12px;color:var(--text2);font-size:12px">{i["time"]}</td></tr>'
+        for i in today_invoices
+    )
+    today_section = ""
+    if today_invoices:
+        today_section = f"""
+  <div class="card" style="margin-bottom:1.5rem">
+    <div class="card-title">Today&#39;s transactions</div>
+    <div style="overflow-x:auto;border-radius:var(--radius);border:0.5px solid var(--border2)">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:var(--bg2)">
+          <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Customer</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Amount</th>
+          <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Time</th>
+        </tr></thead>
+        <tbody>{today_rows_html}</tbody>
+      </table>
+    </div>
+  </div>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -548,12 +666,13 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
   </div>
 
   <div class="metrics">
-    <div class="mc"><div class="lbl">Expected result</div><div class="val" id="m-expected" style="color:var(--green)">—</div></div>
-    <div class="mc"><div class="lbl">Active paying</div><div class="val" id="m-active">—</div><div class="sub" id="m-active-sub">—</div></div>
-    <div class="mc"><div class="lbl">Problem accounts</div><div class="val" id="m-problem" style="color:var(--red)">—</div><div class="sub">past due / unpaid</div></div>
-    <div class="mc"><div class="lbl">Deductions</div><div class="val" id="m-deductions" style="color:var(--gray)">—</div><div class="sub">cancellations</div></div>
+    <div class="mc"><div class="lbl">Total MRR</div><div class="val" style="color:var(--green)">${metrics["total_mrr"]:,.0f}</div><div class="sub">monthly + annual ÷ 12 (USD, active)</div></div>
+    <div class="mc"><div class="lbl">Monthly subscribers</div><div class="val">${metrics["monthly_mrr"]:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text2)">/mo</span></div><div class="sub">{metrics["monthly_count"]} active subscriptions</div></div>
+    <div class="mc"><div class="lbl">Annual subscribers</div><div class="val">${metrics["annual_arr"]:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text2)">/yr</span></div><div class="sub">{metrics["annual_count"]} active · ${metrics["annual_mrr"]:,.0f}/mo equiv.</div></div>
+    <div class="mc"><div class="lbl">Today's collections</div><div class="val" id="today-val" style="color:var(--green)">{today_total_fmt}</div><div class="sub">{today_count} transaction{"s" if today_count != 1 else ""} in last 24h</div></div>
   </div>
 
+  {today_section}
   <div class="row2">
     <div class="card">
       <div class="card-title">Monthly overview — click month to filter · Year = all customers</div>
@@ -561,8 +680,16 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
       <div class="spark-minmax"><span id="sp-min"></span><span id="sp-max"></span></div>
     </div>
     <div class="card">
-      <div class="card-title">Status breakdown</div>
+      <div class="card-title">Status breakdown + projection</div>
       <div id="status-bars"></div>
+      <div style="border-top:0.5px solid var(--border2);margin-top:14px;padding-top:12px;display:flex;justify-content:space-between;font-size:12px;color:var(--text2)">
+        <span>Projected this month</span>
+        <span id="m-expected" style="font-weight:500;color:var(--text)">—</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-top:6px">
+        <span>Problem accounts value</span>
+        <span id="m-problem" style="font-weight:500;color:var(--red)">—</span>
+      </div>
     </div>
   </div>
 
@@ -649,25 +776,18 @@ function updateAll(){{
 
 function updateMetrics(){{
   const base=getFilteredByStatus();
-  let expected, activePaying, problems, problemAmt;
+  let expected, problems, problemAmt;
   if(mi===-1){{
-    // Year view: sum all months
     expected=base.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
-    activePaying=base.filter(r=>r[1]==="Active"&&r[4].some(v=>v>0));
     problems=base.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
     problemAmt=problems.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
   }} else {{
     expected=base.reduce((s,r)=>s+r[4][mi],0);
-    activePaying=base.filter(r=>r[1]==="Active"&&r[4][mi]>0);
     problems=base.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
     problemAmt=problems.reduce((s,r)=>s+r[4][mi],0);
   }}
-  document.getElementById("m-expected").textContent=fmtShort(expected);
-  document.getElementById("m-active").textContent=fmtShort(activePaying.reduce((s,r)=>s+(mi>=0?r[4][mi]:r[4].reduce((a,v)=>a+v,0)),0));
-  document.getElementById("m-active-sub").textContent=activePaying.length+" customers with revenue";
-  document.getElementById("m-problem").textContent=fmtShort(Math.abs(problemAmt)||problems.length);
-  const d=mi>=0?DEDUCTIONS[mi]:DEDUCTIONS.reduce((a,v)=>a+v,0);
-  document.getElementById("m-deductions").textContent=d<0?"-"+fmtShort(Math.abs(d)):"$0";
+  document.getElementById("m-expected").textContent=expected>0?fmt(expected):"—";
+  document.getElementById("m-problem").textContent=problemAmt>0?fmt(problemAmt):problems.length+" accounts";
 }}
 
 function updateSpark(){{
@@ -758,11 +878,20 @@ if __name__ == "__main__":
     customer_map = build_customer_map(subs)
     dated = sum(1 for v in customer_map[0].values() if v.get("next_invoice"))
     print(f"  {dated}/{len(customer_map[0])} customers have a next invoice date")
+
+    print("Computing subscription metrics...")
+    metrics = compute_subscription_metrics(subs)
+    print(f"  MRR: ${metrics['total_mrr']:,.0f} (monthly ${metrics['monthly_mrr']:,.0f} + annual equiv. ${metrics['annual_mrr']:,.0f})")
+
+    print("Fetching today's invoices...")
+    today_invoices = fetch_today_invoices(customer_map[0], customer_map[1])
+    print(f"  {len(today_invoices)} invoice(s) paid in last 24h")
+
     rows = build_rows(customer_map)
     totals, active_tot, problem_tot = compute_totals(rows)
 
     synced = datetime.now(timezone.utc).strftime("%b %d, %Y at %H:%M UTC")
-    html = render_html(rows, totals, active_tot, problem_tot, synced)
+    html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices)
 
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(html)
