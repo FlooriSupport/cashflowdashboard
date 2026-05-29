@@ -242,34 +242,17 @@ def build_customer_map(subs):
 
         label = stripe_status_to_label(sub.status)
 
-        # next invoice date
+        # next invoice date — Stripe API 2024+: current_period_end lives in items.data[0]
         next_invoice_str = ""
         try:
             sub_dict = sub.to_dict()
-            # DEBUG: inspect structure once
-            if not result:
-                items_data = sub_dict.get("items", {}).get("data", [])
-                first_item = items_data[0] if items_data else {}
-                print(f"DEBUG item keys: {list(first_item.keys())}")
-                print(f"DEBUG billing_cycle_anchor: {sub_dict.get('billing_cycle_anchor')!r}")
-                # try known locations
-                print(f"DEBUG item.current_period_end: {first_item.get('current_period_end')!r}")
-                bp = first_item.get("billing_period") or first_item.get("billing_details") or {}
-                print(f"DEBUG item.billing_period/details: {bp!r}")
             ts = None
             items_data = sub_dict.get("items", {}).get("data", [])
             if items_data:
-                first_item = items_data[0]
-                ts = (first_item.get("current_period_end")
-                      or (first_item.get("billing_period") or {}).get("end")
-                      or (first_item.get("billing_details") or {}).get("current_period_end"))
-            if not ts:
-                ts = sub_dict.get("billing_cycle_anchor")
+                ts = items_data[0].get("current_period_end")
             if ts:
                 next_invoice_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d, %Y")
-        except Exception as e:
-            if not result:
-                print(f"DEBUG error: {e}")
+        except Exception:
             next_invoice_str = ""
 
         # consolidate multiple subs per email — keep most severe status
