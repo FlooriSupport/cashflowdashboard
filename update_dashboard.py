@@ -584,7 +584,7 @@ def render_html(rows, totals, active_tot, problem_tot, synced):
           <th style="width:30%">Customer</th>
           <th style="width:13%">Status</th>
           <th style="width:16%" id="col-month">Next invoice</th>
-          <th style="width:13%" class="r">Annual total</th>
+          <th style="width:13%" class="r col-annual">Annual total</th>
           <th style="width:13%" class="r">Base amount</th>
           <th style="width:10%">Interval</th>
         </tr></thead>
@@ -623,7 +623,7 @@ function getFilteredByStatus(){{
 }}
 
 function setMonth(i){{
-  mi=i; // -1 = Year view, 0-7 = month
+  mi=i;
   document.getElementById("prev-mo").disabled = mi<=0;
   document.getElementById("next-mo").disabled = mi===7;
   if(mi===-1){{
@@ -633,6 +633,9 @@ function setMonth(i){{
     document.getElementById("mo-label").textContent=MONTHS[mi];
     document.getElementById("tbl-title").textContent="Customers with revenue — "+MONTHS[mi];
   }}
+  // show/hide Annual Total column
+  const annualCols=document.querySelectorAll(".col-annual");
+  annualCols.forEach(el=>el.style.display=mi===-1?"none":"");
   updateAll();
 }}
 
@@ -735,7 +738,7 @@ function _render(){{
       <td style="font-weight:500">${{r[0]}}</td>
       <td><span class="badge ${{BC[r[1]]||"b-unpaid"}}">${{r[1]}}</span></td>
       <td style="${{nextStyle}};font-size:12px">${{nextInv}}</td>
-      <td class="r" style="color:var(--text2)">${{annualTotal>0?fmt(annualTotal):"—"}}</td>
+      <td class="r col-annual" style="color:var(--text2)">${{annualTotal>0?fmt(annualTotal):"—"}}</td>
       <td class="r" style="color:var(--text2)">$${{r[3].toLocaleString()}}</td>
       <td><span class="freq">${{r[2]}}</span></td>
     </tr>`;
