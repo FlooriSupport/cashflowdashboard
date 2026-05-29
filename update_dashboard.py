@@ -335,6 +335,7 @@ def _fuzzy_match(csv_name: str, by_name: dict):
     return None
 
 
+def build_rows(customer_map):
     by_email, by_name = customer_map
     rows = []
     seen_names = set()
