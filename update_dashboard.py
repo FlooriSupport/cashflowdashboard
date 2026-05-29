@@ -261,7 +261,7 @@ def compute_subscription_metrics(subs):
 
 
 def fetch_today_invoices(subs):
-    """Fetch invoices paid in last 24h via Invoice.list, with USD conversion via balance_transaction."""
+    """Fetch invoices paid in last 24h via Invoice.list, with FX rate USD conversion."""
     import time
     since = int(time.time()) - 86400
     results = []
@@ -270,14 +270,13 @@ def fetch_today_invoices(subs):
             "status":   "paid",
             "created":  {"gte": since},
             "limit":    100,
-            "expand":   ["data.charge.balance_transaction"],
         }
         while True:
             page = stripe.Invoice.list(**params)
             for inv in page.data:
                 try:
-                    amount = _usd_from_invoice_obj(inv)
                     d      = inv.to_dict()
+                    amount = _to_usd(d.get("amount_paid", 0), d.get("currency", "usd"))
                     ts     = d.get("status_transitions", {}).get("paid_at") or d.get("created") or 0
                     cname  = d.get("customer_name") or d.get("customer_email") or "Unknown"
                     time_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%H:%M UTC") if ts else ""
@@ -294,41 +293,37 @@ def fetch_today_invoices(subs):
     return results
 
 
-def _usd_from_invoice_obj(inv):
-    """
-    Extract USD amount from a Stripe Invoice OBJECT (not dict).
-    Accesses balance_transaction directly on the expanded object.
-    Falls back to amount_paid if balance_transaction not available.
-    """
+# ── FX conversion (no Stripe permissions needed) ────────────────────────────
+_FX_RATES = {}   # populated once at startup: {'EUR': 0.92, 'BRL': 5.1, ...}
+
+def _load_fx_rates():
+    """Fetch current USD exchange rates from open.er-api.com (free, no auth)."""
+    import urllib.request
+    global _FX_RATES
     try:
-        charge = getattr(inv, "charge", None)
-        if charge and not isinstance(charge, str):
-            bt = getattr(charge, "balance_transaction", None)
-            if bt and not isinstance(bt, str):
-                amt = getattr(bt, "amount", None)
-                if amt and abs(amt) > 0:
-                    return round(abs(amt) / 100, 2)
-    except Exception:
-        pass
-    return round((getattr(inv, "amount_paid", None) or 0) / 100, 2)
+        with urllib.request.urlopen("https://open.er-api.com/v6/latest/USD", timeout=8) as r:
+            data = json.loads(r.read().decode())
+            _FX_RATES = data.get("rates", {})
+            print(f"  FX rates loaded ({len(_FX_RATES)} currencies)")
+    except Exception as e:
+        print(f"  Warning: could not load FX rates: {e}. Using 1:1 fallback.")
 
-
-def _usd_amount_from_invoice(d):
-    """Legacy: extract USD from a dict. Only used as fallback."""
-    charge = d.get("charge", {}) or {}
-    if isinstance(charge, dict):
-        bt = charge.get("balance_transaction", {}) or {}
-        if isinstance(bt, dict) and bt.get("amount"):
-            net = abs(bt.get("amount", 0))
-            if net > 0:
-                return round(net / 100, 2)
-    return round((d.get("amount_paid") or 0) / 100, 2)
+def _to_usd(amount_cents, currency):
+    """Convert amount in cents (given currency) to USD float using current FX rates."""
+    amount = (amount_cents or 0) / 100
+    cur = (currency or "usd").upper()
+    if cur == "USD":
+        return round(amount, 2)
+    rate = _FX_RATES.get(cur, 0)
+    if rate > 0:
+        return round(amount / rate, 2)
+    return round(amount, 2)  # fallback: treat as USD if rate unknown
 
 
 def fetch_monthly_collected():
     """
     Fetch all paid invoices from Jan–Dec 2026 and return collected USD amounts per month.
-    Expands charge.balance_transaction for accurate USD conversion.
+    Uses FX rates for accurate USD conversion.
     Returns list of 12 floats [jan, feb, ..., dec].
     """
     collected = [0.0] * 12
@@ -339,14 +334,13 @@ def fetch_monthly_collected():
             "status":   "paid",
             "created":  {"gte": start_ts, "lte": end_ts},
             "limit":    100,
-            "expand": ["data.charge.balance_transaction"],
         }
         while True:
             page = stripe.Invoice.list(**params)
             for inv in page.data:
                 try:
-                    amount = _usd_from_invoice_obj(inv)
                     d      = inv.to_dict()
+                    amount = _to_usd(d.get("amount_paid", 0), d.get("currency", "usd"))
                     ts     = d.get("status_transitions", {}).get("paid_at") or d.get("created") or 0
                     if amount > 0 and ts:
                         dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
@@ -445,13 +439,13 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem}}
 .card-title{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}}
 /* bar chart */
-.bchart{{display:flex;gap:5px;align-items:flex-end;height:110px;margin-bottom:6px}}
-.bcol{{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;transition:opacity .15s}}
+.bchart{{display:flex;gap:5px;align-items:flex-end;height:130px;margin-bottom:4px}}
+.bcol{{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:2px;cursor:pointer;transition:opacity .15s}}
 .bcol:hover{{opacity:.75}}
 .bbar{{width:100%;border-radius:3px 3px 0 0;transition:all .2s}}
 .blbl{{font-size:10px;color:var(--text3);transition:color .2s;white-space:nowrap}}
 .blbl.sel{{color:var(--green);font-weight:600}}
-.bval{{font-size:9px;color:var(--text3);white-space:nowrap}}
+.bval{{font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;max-width:100%;text-align:center}}
 .bval.sel{{color:var(--green);font-weight:600}}
 .yr-div{{width:1px;background:var(--border);margin:0 1px;align-self:stretch}}
 .chart-legend{{display:flex;gap:12px;font-size:11px;color:var(--text2);margin-top:4px}}
@@ -462,11 +456,12 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .cmp-mo{{font-size:15px;font-weight:500}}
 .nav-btn{{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:4px 10px;cursor:pointer;color:var(--text);font-size:13px}}
 .nav-btn:disabled{{opacity:.35;cursor:default}}
-.cmp-bars{{display:flex;gap:12px;align-items:flex-end;height:100px;margin-bottom:12px}}
-.cmp-col{{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}}
-.cmp-bar{{width:100%;border-radius:4px 4px 0 0;transition:height .3s ease}}
-.cmp-amt{{font-size:13px;font-weight:500;font-variant-numeric:tabular-nums}}
-.cmp-lbl{{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em}}
+.cmp-bars{{display:flex;gap:16px;margin-bottom:10px}}
+.cmp-col{{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}}
+.cmp-amt{{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1}}
+.cmp-bar-area{{width:100%;height:80px;display:flex;align-items:flex-end;overflow:hidden}}
+.cmp-bar{{width:100%;border-radius:4px 4px 0 0;transition:height .3s ease;min-height:0}}
+.cmp-lbl{{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}}
 .cmp-diff{{text-align:center;font-size:12px;padding:8px;border-radius:var(--r);margin-top:4px}}
 /* row2 */
 .row2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.5rem}}
@@ -561,15 +556,19 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
         <span class="cmp-mo" id="cmp-mo-label">—</span>
         <button class="nav-btn" id="cmp-next" onclick="nextMonth()">→</button>
       </div>
-      <div class="cmp-bars" id="cmp-bars">
+      <div class="cmp-bars">
         <div class="cmp-col">
-          <div class="cmp-bar" id="cbar-exp" style="background:var(--gbar)"></div>
           <div class="cmp-amt" id="cval-exp" style="color:var(--green)">—</div>
+          <div class="cmp-bar-area">
+            <div class="cmp-bar" id="cbar-exp" style="background:var(--gbar)"></div>
+          </div>
           <div class="cmp-lbl">Expected</div>
         </div>
         <div class="cmp-col">
-          <div class="cmp-bar" id="cbar-col" style="background:var(--bbar)"></div>
           <div class="cmp-amt" id="cval-col" style="color:var(--blue)">—</div>
+          <div class="cmp-bar-area">
+            <div class="cmp-bar" id="cbar-col" style="background:var(--bbar)"></div>
+          </div>
           <div class="cmp-lbl">Collected</div>
         </div>
       </div>
@@ -697,16 +696,18 @@ function renderExpectedChart(){{
   mt.forEach((v,i)=>{{
     const sel=mi===i;
     const h=Math.max(3,Math.round((v/mx)*100));
-    html+=`<div class="bcol" title="${{MO_SHORT[i]+': '+fmtS(v)}}" onclick="setMonth(${{i}})">
-      <div class="bbar" style="height:${{h}}px;background:${{sel?"var(--green)":"var(--gbar)"}}" title="${{fmtS(v)}}"></div>
+    html+=`<div class="bcol" onclick="setMonth(${{i}})">
+      <span class="bval${{sel?" sel":""}}">${{v>0?fmtS(v):""}}</span>
+      <div class="bbar" style="height:${{h}}px;background:${{sel?"var(--green)":"var(--gbar)"}};flex-shrink:0"></div>
       <span class="blbl${{sel?" sel":""}}">${{MO_SHORT[i]}}</span>
     </div>`;
   }});
   const selYr=mi===-1;
   const hYr=Math.max(3,Math.round((yt/mx)*100));
   html+=`<div class="yr-div"></div>
-  <div class="bcol" title="Year: ${{fmtS(yt)}}" onclick="setMonth(-1)">
-    <div class="bbar" style="height:${{hYr}}px;background:${{selYr?"var(--green)":"#B8DFA0"}}"></div>
+  <div class="bcol" onclick="setMonth(-1)">
+    <span class="bval${{selYr?" sel":""}}">${{fmtS(yt)}}</span>
+    <div class="bbar" style="height:${{hYr}}px;background:${{selYr?"var(--green)":"#B8DFA0"}};flex-shrink:0"></div>
     <span class="blbl${{selYr?" sel":""}}">Year</span>
   </div>`;
   document.getElementById("barchart").innerHTML=html;
@@ -795,6 +796,9 @@ if __name__ == "__main__":
     print("Computing subscription metrics...")
     metrics = compute_subscription_metrics(subs)
     print(f"  MRR: ${metrics['total_mrr']:,.0f} (monthly ${metrics['monthly_mrr']:,.0f} + annual equiv. ${metrics['annual_mrr']:,.0f})")
+
+    print("Loading FX rates...")
+    _load_fx_rates()
 
     print("Fetching today's invoices...")
     today_invoices = fetch_today_invoices(subs)
