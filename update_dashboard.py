@@ -212,26 +212,37 @@ def build_customer_map(subs):
     """Returns {email: {name, status, interval, amount, currency}}"""
     result = {}
     for sub in subs:
+        # customer may be an expanded object or just a string ID
         cust = sub.customer
-        email = getattr(cust, "email", None) or ""
-        name = getattr(cust, "name", None) or EMAIL_TO_NAME.get(email, "")
-        if not name:
-            name = EMAIL_TO_NAME.get(email.lower(), email)
+        if isinstance(cust, str):
+            email, name = "", ""
+        else:
+            email = getattr(cust, "email", None) or ""
+            name  = getattr(cust, "name",  None) or ""
 
-        # pick the first price item
-        item = sub["items"]["data"][0] if sub["items"]["data"] else None
-        amount = 0
+        if not name:
+            name = EMAIL_TO_NAME.get(email, "") or EMAIL_TO_NAME.get(email.lower(), "")
+
+        # pick the first subscription item
+        items_data = getattr(getattr(sub, "items", None), "data", []) or []
+        item = items_data[0] if items_data else None
+
+        amount   = 0
         interval = "Monthly"
         currency = "usd"
+
         if item:
-            price = item.get("price") or {}
-            amount = (price.get("unit_amount") or 0)
-            currency = (price.get("currency") or "usd").lower()
-            interval = "Annual" if (price.get("recurring") or {}).get("interval") == "year" else "Monthly"
+            price = getattr(item, "price", None)
+            if price:
+                amount   = getattr(price, "unit_amount", 0) or 0
+                currency = (getattr(price, "currency", "usd") or "usd").lower()
+                recurring = getattr(price, "recurring", None)
+                if recurring and getattr(recurring, "interval", None) == "year":
+                    interval = "Annual"
 
         label = stripe_status_to_label(sub.status)
 
-        # consolidate multiple subs for same email — keep most severe status
+        # consolidate multiple subs per email — keep most severe status
         priority = {"Past due": 3, "Unpaid": 2, "Cancelled": 1, "Active": 0}
         if email in result:
             existing = result[email]
@@ -240,11 +251,11 @@ def build_customer_map(subs):
             existing["amount"] = max(existing["amount"], amount)
         else:
             result[email] = {
-                "name": name or email,
-                "email": email,
-                "status": label,
+                "name":     name or email,
+                "email":    email,
+                "status":   label,
                 "interval": interval,
-                "amount": amount,
+                "amount":   amount,
                 "currency": currency,
             }
     return result
