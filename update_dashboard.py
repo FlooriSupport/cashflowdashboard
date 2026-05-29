@@ -10,20 +10,20 @@ from datetime import datetime, timezone
 
 stripe.api_key = os.environ["STRIPE_API_KEY"]
 
-# ── Period definition: May–Dec 2026 ─────────────────────────────────────────
+# ── Period definition: Jan–Dec 2026 ─────────────────────────────────────────
 PERIOD_MONTHS = [
     datetime(2026, m, 1, tzinfo=timezone.utc)
-    for m in range(5, 13)
+    for m in range(1, 13)
 ]
-PERIOD_START = PERIOD_MONTHS[0]
+PERIOD_START = PERIOD_MONTHS[0]   # Jan 1 2026
 PERIOD_END   = datetime(2027, 1, 1, tzinfo=timezone.utc)
 
 
 def _month_index(dt):
-    """Return 0–7 for May–Dec 2026, or -1 if outside range."""
+    """Return 0–11 for Jan–Dec 2026, or -1 if outside range."""
     if dt < PERIOD_START or dt >= PERIOD_END:
         return -1
-    return (dt.year - 2026) * 12 + dt.month - 5
+    return dt.month - 1  # Jan=0 … Dec=11
 
 
 def _add_months(dt, n):
@@ -68,7 +68,7 @@ def _compute_projections(sub_dict, amount_usd, interval):
                   Checks both current_period_start (already billed this year)
                   and current_period_end (next renewal), whichever is in window.
     """
-    proj = [0.0] * 8
+    proj = [0.0] * 12
     if amount_usd <= 0:
         return proj
 
@@ -87,25 +87,29 @@ def _compute_projections(sub_dict, amount_usd, interval):
         if ts_start:
             dt_start = datetime.fromtimestamp(int(ts_start), tz=timezone.utc)
             mi = _month_index(dt_start)
-            if 0 <= mi <= 7:
+            if 0 <= mi <= 11:
                 proj[mi] = round(amount_usd, 2)
                 placed = True
         # Fallback: next renewal (current_period_end) within our window
         if not placed and ts_end:
             dt_end = datetime.fromtimestamp(int(ts_end), tz=timezone.utc)
             mi = _month_index(dt_end)
-            if 0 <= mi <= 7:
+            if 0 <= mi <= 11:
                 proj[mi] = round(amount_usd, 2)
     else:
         if not ts_end:
             return proj
         # Monthly: advance until first billing date within window
         dt = datetime.fromtimestamp(int(ts_end), tz=timezone.utc)
-        while dt < PERIOD_START:
-            dt = _add_months(dt, 1)
+        # Go back to find first billing in 2026
+        while dt > PERIOD_START:
+            prev = _add_months(dt, -1)
+            if prev < PERIOD_START:
+                break
+            dt = prev
         while dt < PERIOD_END:
             mi = _month_index(dt)
-            if 0 <= mi <= 7:
+            if 0 <= mi <= 11:
                 proj[mi] = round(amount_usd, 2)
             dt = _add_months(dt, 1)
 
@@ -115,7 +119,7 @@ def _compute_projections(sub_dict, amount_usd, interval):
 def build_rows(subs):
     """
     Build one row per unique customer (by customer ID).
-    Row format: [name, status, interval, base_usd, proj[8], next_invoice_str]
+    Row format: [name, status, interval, base_usd, proj[12], next_invoice_str]
     Only USD subscriptions are included in projections.
     Non-USD amounts shown as base_usd=0 but customer still appears.
     """
@@ -199,9 +203,9 @@ def build_rows(subs):
 
 
 def compute_totals(rows):
-    totals  = [0.0] * 8
-    active  = [0.0] * 8
-    problem = [0.0] * 8
+    totals  = [0.0] * 12
+    active  = [0.0] * 12
+    problem = [0.0] * 12
     for r in rows:
         for i, v in enumerate(r[4]):
             totals[i] += v
@@ -271,8 +275,17 @@ def fetch_today_invoices(subs):
             page = stripe.Event.list(**params)
             for event in page.data:
                 try:
-                    inv_dict = event.to_dict().get("data", {}).get("object", {})
-                    amount   = (inv_dict.get("amount_paid") or 0) / 100
+                    event_d  = event.to_dict()
+                    inv_dict = event_d.get("data", {}).get("object", {})
+                    # Use balance_transaction if available for USD conversion
+                    charge_obj = inv_dict.get("charge", {}) or {}
+                    bt = {}
+                    if isinstance(charge_obj, dict):
+                        bt = charge_obj.get("balance_transaction", {}) or {}
+                    if isinstance(bt, dict) and bt.get("amount"):
+                        amount = abs(bt.get("amount", 0)) / 100
+                    else:
+                        amount = (inv_dict.get("amount_paid") or 0) / 100
                     created  = event.to_dict().get("created", 0)
                     time_str = datetime.fromtimestamp(int(created), tz=timezone.utc).strftime("%H:%M UTC") if created else ""
                     cname    = inv_dict.get("customer_name") or inv_dict.get("customer_email") or "Unknown"
@@ -289,32 +302,52 @@ def fetch_today_invoices(subs):
     return results
 
 
+def _usd_amount_from_invoice(d):
+    """
+    Extract USD amount from a Stripe invoice dict.
+    Uses balance_transaction.amount (actual USD received) when available.
+    Falls back to amount_paid for USD invoices, or amount_paid as-is for others.
+    """
+    # Try balance transaction first (actual USD settled amount)
+    charge = d.get("charge", {}) or {}
+    if isinstance(charge, dict):
+        bt = charge.get("balance_transaction", {}) or {}
+        if isinstance(bt, dict) and bt.get("amount"):
+            # bt.amount is in account currency (USD), in cents
+            net = abs(bt.get("amount", 0))
+            if net > 0:
+                return round(net / 100, 2)
+    # Fallback: use amount_paid directly
+    return round((d.get("amount_paid") or 0) / 100, 2)
+
+
 def fetch_monthly_collected():
     """
-    Fetch all paid invoices from May–Dec 2026 and return collected amounts per month.
-    Treats all amounts as USD (as billed, no FX conversion).
-    Returns list of 8 floats [may, jun, ..., dec].
+    Fetch all paid invoices from Jan–Dec 2026 and return collected USD amounts per month.
+    Expands charge.balance_transaction for accurate USD conversion.
+    Returns list of 12 floats [jan, feb, ..., dec].
     """
-    collected = [0.0] * 8
+    collected = [0.0] * 12
     start_ts  = int(PERIOD_START.timestamp())
     end_ts    = int(PERIOD_END.timestamp())
     try:
         params = {
-            "status":       "paid",
-            "created":      {"gte": start_ts, "lte": end_ts},
-            "limit":        100,
+            "status":   "paid",
+            "created":  {"gte": start_ts, "lte": end_ts},
+            "limit":    100,
+            "expand[]": "data.charge.balance_transaction",
         }
         while True:
             page = stripe.Invoice.list(**params)
             for inv in page.data:
                 try:
                     d      = inv.to_dict()
-                    amount = (d.get("amount_paid") or 0) / 100
+                    amount = _usd_amount_from_invoice(d)
                     ts     = d.get("status_transitions", {}).get("paid_at") or d.get("created") or 0
                     if amount > 0 and ts:
                         dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
                         mi = _month_index(dt)
-                        if 0 <= mi <= 7:
+                        if 0 <= mi <= 11:
                             collected[mi] = round(collected[mi] + amount, 2)
                 except Exception:
                     continue
@@ -373,12 +406,11 @@ def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_in
   --bg:#ffffff;--bg2:#f5f5f3;--bg3:#eeece6;
   --text:#1a1a18;--text2:#6b6a65;--text3:#9e9d98;
   --border:rgba(0,0,0,0.10);--border2:rgba(0,0,0,0.07);
-  --green:#3B6D11;--green-bg:#EAF3DE;--green-bar:#7EC242;
+  --green:#3B6D11;--green-bg:#EAF3DE;--gbar:#6FAF2A;
   --red:#A32D2D;--red-bg:#FCEBEB;
   --amber:#854F0B;--amber-bg:#FAEEDA;
-  --blue:#185FA5;--blue-bg:#E8F0FB;--blue-bar:#A8C4E0;
-  --gray:#5F5E5A;--gray-bg:#F1EFE8;
-  --stripe:#635BFF;
+  --blue:#185FA5;--blue-bg:#E8F0FB;--bbar:#5B9BD5;
+  --gray:#5F5E5A;--gray-bg:#F1EFE8;--stripe:#635BFF;
   --r:8px;--rl:12px;
   --font:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 }}
@@ -387,73 +419,69 @@ def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_in
     --bg:#1c1c1a;--bg2:#242422;--bg3:#2c2c2a;
     --text:#e8e6df;--text2:#9e9d98;--text3:#6b6a65;
     --border:rgba(255,255,255,0.10);--border2:rgba(255,255,255,0.06);
-    --green:#9FE1CB;--green-bg:#085041;--green-bar:#4D9A2A;
+    --green:#9FE1CB;--green-bg:#085041;--gbar:#4D9A2A;
     --red:#F09595;--red-bg:#501313;
     --amber:#FAC775;--amber-bg:#412402;
-    --blue:#7EB4E8;--blue-bg:#0D2A4A;--blue-bar:#2A5A8A;
+    --blue:#7EB4E8;--blue-bg:#0D2A4A;--bbar:#2A5A8A;
     --gray:#B4B2A9;--gray-bg:#2C2C2A;
   }}
 }}
 body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:14px;min-height:100vh}}
-.wrap{{max-width:1120px;margin:0 auto;padding:1.5rem}}
-
-/* topbar */
-.topbar{{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.75rem;gap:1rem;flex-wrap:wrap}}
-.topbar h1{{font-size:16px;font-weight:500;display:flex;align-items:center;gap:8px;color:var(--text)}}
-.topbar h1 .si{{color:var(--stripe)}}
+.wrap{{max-width:1140px;margin:0 auto;padding:1.5rem}}
+.topbar{{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.75rem;flex-wrap:wrap;gap:1rem}}
+.topbar h1{{font-size:16px;font-weight:500;display:flex;align-items:center;gap:8px}}
+.si{{color:var(--stripe)}}
 .synced{{font-size:11px;color:var(--text3);margin-top:3px}}
-.mo-pill{{display:flex;align-items:center;gap:6px;background:var(--bg2);border:0.5px solid var(--border);border-radius:20px;padding:5px 14px;font-size:13px;font-weight:500}}
-.mo-pill span{{min-width:72px;text-align:center}}
-
-/* metric cards */
 .metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1.5rem}}
 .mc{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1rem}}
 .mc .lbl{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}}
 .mc .val{{font-size:24px;font-weight:500;line-height:1.1}}
 .mc .sub{{font-size:11px;color:var(--text3);margin-top:5px}}
-.mc .trend{{font-size:11px;margin-top:4px}}
-
-/* chart card */
-.chart-card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem;margin-bottom:1.5rem}}
-.chart-card .ct{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}}
-.chart-card .ct span{{font-size:12px;color:var(--text2);font-weight:400;text-transform:none;letter-spacing:0}}
-.bar-chart{{display:flex;gap:6px;align-items:flex-end;height:140px}}
-.bc-col{{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;transition:opacity .15s}}
-.bc-col:hover{{opacity:.8}}
-.bc-val{{font-size:11px;white-space:nowrap;color:var(--text2);transition:color .2s;font-variant-numeric:tabular-nums}}
-.bc-val.sel{{color:var(--green);font-weight:700}}
-.bc-val.sel-yr{{color:var(--blue);font-weight:700}}
-.bc-bar{{width:100%;border-radius:3px 3px 0 0;transition:background .2s}}
-.bc-lbl{{font-size:11px;color:var(--text2);transition:color .2s;font-weight:500}}
-.bc-lbl.sel{{color:var(--green);font-weight:700}}
-.bc-lbl.sel-yr{{color:var(--blue);font-weight:700}}
-.yr-divider{{width:1px;background:var(--border);margin:0 2px;align-self:stretch}}
-
-/* 2-col */
-.row2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.5rem}}
+.charts-row{{display:grid;grid-template-columns:3fr 2fr;gap:12px;margin-bottom:1.5rem}}
 .card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem}}
-.card-title{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px}}
-
-/* kv list inside card */
+.card-title{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}}
+/* bar chart */
+.bchart{{display:flex;gap:5px;align-items:flex-end;height:130px;margin-bottom:6px}}
+.bcol{{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;transition:opacity .15s}}
+.bcol:hover{{opacity:.75}}
+.bbar{{width:100%;border-radius:3px 3px 0 0;transition:all .2s}}
+.blbl{{font-size:10px;color:var(--text3);transition:color .2s;white-space:nowrap}}
+.blbl.sel{{color:var(--green);font-weight:600}}
+.bval{{font-size:9px;color:var(--text3);white-space:nowrap}}
+.bval.sel{{color:var(--green);font-weight:600}}
+.yr-div{{width:1px;background:var(--border);margin:0 1px;align-self:stretch}}
+.chart-legend{{display:flex;gap:12px;font-size:11px;color:var(--text2);margin-top:4px}}
+.chart-legend span{{display:flex;align-items:center;gap:4px}}
+.dot{{width:10px;height:10px;border-radius:2px;display:inline-block}}
+/* comparison card */
+.cmp-nav{{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}}
+.cmp-mo{{font-size:15px;font-weight:500}}
+.nav-btn{{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:4px 10px;cursor:pointer;color:var(--text);font-size:13px}}
+.nav-btn:disabled{{opacity:.35;cursor:default}}
+.cmp-bars{{display:flex;gap:12px;align-items:flex-end;height:100px;margin-bottom:12px}}
+.cmp-col{{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}}
+.cmp-bar{{width:100%;border-radius:4px 4px 0 0;transition:height .3s ease}}
+.cmp-amt{{font-size:13px;font-weight:500;font-variant-numeric:tabular-nums}}
+.cmp-lbl{{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em}}
+.cmp-diff{{text-align:center;font-size:12px;padding:8px;border-radius:var(--r);margin-top:4px}}
+/* row2 */
+.row2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.5rem}}
 .kv{{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--border2);font-size:13px}}
 .kv:last-child{{border-bottom:none}}
 .kv .k{{color:var(--text2)}}
 .kv .v{{font-weight:500}}
 .kv .v.red{{color:var(--red)}}
 .kv .v.green{{color:var(--green)}}
-.kv .v.blue{{color:var(--blue)}}
-
-/* invoices table */
+/* invoices */
+.inv-wrap{{border-radius:var(--r);border:0.5px solid var(--border2);overflow:hidden}}
 .inv-table{{width:100%;border-collapse:collapse;font-size:13px}}
-.inv-table th{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;padding:7px 10px;background:var(--bg2);border-bottom:0.5px solid var(--border2);text-align:left;white-space:nowrap}}
+.inv-table th{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;padding:7px 10px;background:var(--bg2);border-bottom:0.5px solid var(--border2);text-align:left}}
 .inv-table th.r,.inv-table td.r{{text-align:right}}
 .inv-table td{{padding:8px 10px;border-bottom:0.5px solid var(--border2);vertical-align:middle}}
 .inv-table tr:last-child td{{border-bottom:none}}
 .inv-table tr:hover td{{background:var(--bg2)}}
-.inv-wrap{{border-radius:var(--r);border:0.5px solid var(--border2);overflow:hidden}}
-.empty{{text-align:center;color:var(--text3);font-size:13px;padding:2rem}}
-
-/* customer table */
+.empty{{text-align:center;color:var(--text3);font-size:13px;padding:1.5rem}}
+/* table */
 .tbl-section{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem}}
 .tbl-header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap}}
 .tbl-controls{{display:flex;gap:8px}}
@@ -477,7 +505,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
 .pag button:disabled{{opacity:.35;cursor:default}}
 .pag button:not(:disabled):hover{{background:var(--bg2)}}
 #ct-lbl{{margin-left:auto;font-size:12px}}
-@media(max-width:700px){{.metrics{{grid-template-columns:repeat(2,1fr)}}.row2{{grid-template-columns:1fr}}}}
+@media(max-width:700px){{.metrics{{grid-template-columns:repeat(2,1fr)}}.charts-row,.row2{{grid-template-columns:1fr}}}}
 </style>
 </head>
 <body>
@@ -487,9 +515,6 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
       <p class="synced">Last synced: {synced} · Auto-updated weekdays at 9:30 AM BRT</p>
-    </div>
-    <div class="mo-pill">
-      <span id="mo-label">Full Year 2026</span>
     </div>
   </div>
 
@@ -512,16 +537,40 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
     <div class="mc">
       <div class="lbl">Collected today</div>
       <div class="val" style="color:{'var(--green)' if today_total>0 else 'var(--text3)'}">{today_total_fmt}</div>
-      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · as billed</div>
+      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · USD equiv.</div>
     </div>
   </div>
 
-  <div class="chart-card">
-    <div class="ct">
-      <span>Monthly cashflow — click to select · Year shows all</span>
-      <span id="chart-sub">Showing full year projection</span>
+  <div class="charts-row">
+    <!-- Card 1: Full year expected (clickable to select month) -->
+    <div class="card">
+      <div class="card-title">Expected cashflow — Jan to Dec 2026 <span style="font-size:10px;font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0">(click month to filter)</span></div>
+      <div class="bchart" id="barchart"></div>
+      <div class="chart-legend">
+        <span><span class="dot" style="background:var(--gbar)"></span>Expected (active subs)</span>
+      </div>
     </div>
-    <div class="bar-chart" id="barchart"></div>
+    <!-- Card 2: Expected vs Collected for selected month -->
+    <div class="card">
+      <div class="cmp-nav">
+        <button class="nav-btn" id="cmp-prev" onclick="prevMonth()">←</button>
+        <span class="cmp-mo" id="cmp-mo-label">—</span>
+        <button class="nav-btn" id="cmp-next" onclick="nextMonth()">→</button>
+      </div>
+      <div class="cmp-bars" id="cmp-bars">
+        <div class="cmp-col">
+          <div class="cmp-bar" id="cbar-exp" style="background:var(--gbar)"></div>
+          <div class="cmp-amt" id="cval-exp" style="color:var(--green)">—</div>
+          <div class="cmp-lbl">Expected</div>
+        </div>
+        <div class="cmp-col">
+          <div class="cmp-bar" id="cbar-col" style="background:var(--bbar)"></div>
+          <div class="cmp-amt" id="cval-col" style="color:var(--blue)">—</div>
+          <div class="cmp-lbl">Collected</div>
+        </div>
+      </div>
+      <div class="cmp-diff" id="cmp-diff"></div>
+    </div>
   </div>
 
   <div class="row2">
@@ -532,8 +581,8 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
       <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
     </div>
     <div class="card">
-      <div class="card-title">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h)</span></div>
-      {"<div class='inv-wrap'><table class='inv-table'><thead><tr><th>Customer</th><th class='r'>Amount</th><th>Time</th></tr></thead><tbody>" + today_rows_html + "</tbody></table></div>" if today_invoices else "<div class='empty'>No payments recorded in the last 24h</div>"}
+      <div class="card-title">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h · USD equiv.)</span></div>
+      {"<div class='inv-wrap'><table class='inv-table'><thead><tr><th>Customer</th><th class='r'>Amount</th><th>Time</th></tr></thead><tbody>" + today_rows_html + "</tbody></table></div>" if today_invoices else "<div class='empty'>No payments in the last 24h</div>"}
     </div>
   </div>
 
@@ -572,15 +621,15 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
 
 </div>
 <script>
-const MONTHS=["May 2026","Jun 2026","Jul 2026","Aug 2026","Sep 2026","Oct 2026","Nov 2026","Dec 2026"];
-const MO_SHORT=["May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHS=["Jan 2026","Feb 2026","Mar 2026","Apr 2026","May 2026","Jun 2026","Jul 2026","Aug 2026","Sep 2026","Oct 2026","Nov 2026","Dec 2026"];
+const MO_SHORT=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const D={rows_js}.filter(r=>r[1]!=="Cancelled");
 const COLLECTED={collected_js};
 const BC={{"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"}};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{{style:"currency",currency:"USD",maximumFractionDigits:0}}).format(Math.abs(v));
 const fmtS=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
 
-let mi=-1,pg=1,sf="all";
+let mi=4,pg=1,sf="all"; // mi: 0-11=Jan-Dec, -1=Year; default May (index 4)
 const PS=15;
 
 function byStatus(){{
@@ -588,10 +637,15 @@ function byStatus(){{
   return D.filter(r=>f==="all"||(f==="Active"&&r[1]==="Active")||(f==="problem"&&(r[1]==="Past due"||r[1]==="Unpaid")));
 }}
 
+function prevMonth(){{if(mi>0)setMonth(mi-1);else if(mi===-1)setMonth(11);}}
+function nextMonth(){{if(mi<11)setMonth(mi+1);else setMonth(-1);}}
+
 function setMonth(i){{
   mi=i;
   const isYr=mi===-1;
-  document.getElementById("mo-label").textContent=isYr?"Full Year 2026":MONTHS[mi];
+  document.getElementById("cmp-mo-label").textContent=isYr?"Full Year 2026":MONTHS[mi];
+  document.getElementById("cmp-prev").disabled=false;
+  document.getElementById("cmp-next").disabled=false;
   document.getElementById("sel-title").textContent=isYr?"Full Year 2026":MONTHS[mi];
   document.getElementById("tbl-title").textContent=isYr?"All customers":"Customers — "+MONTHS[mi];
   document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
@@ -601,7 +655,8 @@ function setMonth(i){{
 function updateAll(){{
   sf=document.getElementById("flt").value;
   updateSelCard();
-  renderChart();
+  renderExpectedChart();
+  updateCmpCard();
   pg=1; _render();
 }}
 
@@ -623,48 +678,61 @@ function updateSelCard(){{
   document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
 }}
 
-function renderChart(){{
+function renderExpectedChart(){{
   const base=byStatus();
   const mt=MONTHS.map((_,i)=>base.reduce((s,r)=>s+r[4][i],0));
   const yt=mt.reduce((a,v)=>a+v,0);
-  const yc=COLLECTED.reduce((a,v)=>a+v,0);
-  const mx=Math.max(...mt,...COLLECTED,yt,yc)||1;
+  const mx=Math.max(...mt,yt)||1;
   let html="";
-  mt.forEach((exp,i)=>{{
-    const col=COLLECTED[i]||0;
+  mt.forEach((v,i)=>{{
     const sel=mi===i;
-    const hExp=Math.max(3,Math.round((exp/mx)*110));
-    const hCol=Math.max(col>0?3:0,Math.round((col/mx)*110));
-    html+=`<div class="bc-col" onclick="setMonth(${{i}})" style="gap:2px">
-      <div style="display:flex;gap:2px;align-items:flex-end;width:100%">
-        <div title="Expected ${{fmtS(exp)}}" style="flex:1;height:${{hExp}}px;background:${{sel?"#4A8A16":"#B8DFA0"}};border-radius:3px 3px 0 0"></div>
-        <div title="Collected ${{fmtS(col)}}" style="flex:1;height:${{hCol}}px;background:${{sel?"#1565C0":"#90CAF9"}};border-radius:3px 3px 0 0"></div>
-      </div>
-      <div style="display:flex;justify-content:space-between;width:100%">
-        <span class="bc-val${{sel?" sel":""}}" style="font-size:9px">${{exp>0?fmtS(exp):"—"}}</span>
-        <span style="font-size:9px;color:${{sel?"#1565C0":"var(--text3)"}}">${{col>0?fmtS(col):"—"}}</span>
-      </div>
-      <span class="bc-lbl${{sel?" sel":""}}">${{MO_SHORT[i]}}</span>
+    const h=Math.max(3,Math.round((v/mx)*110));
+    html+=`<div class="bcol" onclick="setMonth(${{i}})">
+      <span class="bval${{sel?" sel":""}}">${{v>0?fmtS(v):"—"}}</span>
+      <div class="bbar" style="height:${{h}}px;background:${{sel?"var(--green)":"var(--gbar)"}}"></div>
+      <span class="blbl${{sel?" sel":""}}">${{MO_SHORT[i]}}</span>
     </div>`;
   }});
   const selYr=mi===-1;
-  const hYt=Math.max(3,Math.round((yt/mx)*110));
-  const hYc=Math.max(yc>0?3:0,Math.round((yc/mx)*110));
-  html+=`<div class="yr-divider"></div>
-  <div class="bc-col" onclick="setMonth(-1)" style="gap:2px">
-    <div style="display:flex;gap:2px;align-items:flex-end;width:100%">
-      <div title="Expected ${{fmtS(yt)}}" style="flex:1;height:${{hYt}}px;background:${{selYr?"#4A8A16":"#B8DFA0"}};border-radius:3px 3px 0 0"></div>
-      <div title="Collected ${{fmtS(yc)}}" style="flex:1;height:${{hYc}}px;background:${{selYr?"#1565C0":"#90CAF9"}};border-radius:3px 3px 0 0"></div>
-    </div>
-    <div style="display:flex;justify-content:space-between;width:100%">
-      <span class="bc-val${{selYr?" sel":""}}" style="font-size:9px">${{fmtS(yt)}}</span>
-      <span style="font-size:9px;color:${{selYr?"#1565C0":"var(--text3)"}}">${{yc>0?fmtS(yc):"—"}}</span>
-    </div>
-    <span class="bc-lbl${{selYr?" sel-yr":""}}">Year</span>
+  const hYr=Math.max(3,Math.round((yt/mx)*110));
+  html+=`<div class="yr-div"></div>
+  <div class="bcol" onclick="setMonth(-1)">
+    <span class="bval${{selYr?" sel":""}}" style="${{selYr?"color:var(--green)":""}}">${{fmtS(yt)}}</span>
+    <div class="bbar" style="height:${{hYr}}px;background:${{selYr?"var(--green)":"#B8DFA0"}}"></div>
+    <span class="blbl${{selYr?" sel":""}}">Year</span>
   </div>`;
   document.getElementById("barchart").innerHTML=html;
-  // update legend
-  document.getElementById("chart-sub").innerHTML='<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#4A8A16;display:inline-block"></span>Expected</span> &nbsp; <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#1565C0;display:inline-block"></span>Collected</span>';
+}}
+
+function updateCmpCard(){{
+  const isYr=mi===-1;
+  const all=D;
+  let exp,col;
+  if(isYr){{
+    exp=all.filter(r=>r[1]==="Active").reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
+    col=COLLECTED.reduce((a,v)=>a+v,0);
+  }}else{{
+    exp=all.filter(r=>r[1]==="Active").reduce((s,r)=>s+r[4][mi],0);
+    col=COLLECTED[mi]||0;
+  }}
+  const mx=Math.max(exp,col)||1;
+  const hExp=Math.max(8,Math.round((exp/mx)*80));
+  const hCol=Math.max(col>0?8:0,Math.round((col/mx)*80));
+  document.getElementById("cbar-exp").style.height=hExp+"px";
+  document.getElementById("cbar-col").style.height=hCol+"px";
+  document.getElementById("cval-exp").textContent=exp>0?fmt(exp):"—";
+  document.getElementById("cval-col").textContent=col>0?fmt(col):"—";
+  const diff=col-exp;
+  const diffEl=document.getElementById("cmp-diff");
+  if(col===0&&exp===0){{diffEl.textContent="";diffEl.style.background="";return;}}
+  const pct=exp>0?Math.round((col/exp)*100):0;
+  if(diff>=0){{
+    diffEl.innerHTML=`<span style="color:var(--green);font-weight:500">+${{fmt(diff)}}</span> <span style="color:var(--text3)">(${{pct}}% of expected)</span>`;
+    diffEl.style.background="var(--green-bg)";
+  }}else{{
+    diffEl.innerHTML=`<span style="color:var(--red);font-weight:500">${{fmt(diff)}}</span> <span style="color:var(--text3)">(${{pct}}% of expected collected)</span>`;
+    diffEl.style.background="var(--red-bg)";
+  }}
 }}
 
 function getFiltered(){{
@@ -696,11 +764,10 @@ function _render(){{
   }}).join("");
 }}
 
-setMonth(-1);
+setMonth(4); // default: May 2026
 </script>
 </body>
 </html>"""
-
 
 if __name__ == "__main__":
     print("Fetching subscriptions from Stripe...")
