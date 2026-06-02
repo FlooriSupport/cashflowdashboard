@@ -703,7 +703,7 @@ function setMonth(i){{
   document.getElementById("cmp-next").disabled=false;
   document.getElementById("sel-title").textContent=isYr?"Full Year 2026":MONTHS[mi];
   document.getElementById("tbl-title").textContent=isYr?"All customers — Full Year 2026":"Customers with revenue in "+MONTHS[mi];
-  document.getElementById("tbl-hint").textContent=isYr?"Showing all customers across Jan–Dec 2026":"Only customers with expected revenue this month · Select \"Year\" in the cashflow chart to see all";
+  document.getElementById("tbl-hint").textContent=isYr?"Showing all customers across Jan\u2013Dec 2026":"Only customers billed this month · Select 'Year' in the chart above to see all.";
   document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
   updateAll();
 }}
