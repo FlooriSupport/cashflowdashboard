@@ -277,30 +277,35 @@ def compute_subscription_metrics(subs):
 
 def fetch_today_invoices(subs):
     """
-    Fetch invoices paid in last 24h using the Events API.
-    Events are indexed by when the payment HAPPENED, not when the invoice was created.
-    This correctly surfaces invoices created weeks ago but paid yesterday.
+    Fetch all successful payments in the last 24h using charge.succeeded events.
+    Covers both subscription charges and one-time charges.
     """
     import time
     since = int(time.time()) - 86400
+    seen = set()
     results = []
     try:
-        params = {
-            "type":    "invoice.payment_succeeded",
-            "created": {"gte": since},
-            "limit":   100,
-        }
+        params = {"type": "charge.succeeded", "created": {"gte": since}, "limit": 100}
         while True:
             page = stripe.Event.list(**params)
             for event in page.data:
                 try:
-                    ev_dict  = event.to_dict()
-                    inv_dict = ev_dict.get("data", {}).get("object", {}) or {}
-                    amount   = _to_usd(inv_dict.get("amount_paid", 0), inv_dict.get("currency", "usd"))
+                    ev_dict   = event.to_dict()
+                    charge    = ev_dict.get("data", {}).get("object", {}) or {}
+                    charge_id = charge.get("id", "")
+                    if charge_id in seen:
+                        continue
+                    if not charge.get("captured", False):
+                        continue
+                    if charge.get("refunded", False):
+                        continue
+                    amount   = _to_usd(charge.get("amount", 0), charge.get("currency", "usd"))
                     ts       = ev_dict.get("created", 0)
-                    cname    = inv_dict.get("customer_name") or inv_dict.get("customer_email") or "Unknown"
                     time_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%H:%M UTC") if ts else ""
+                    billing  = charge.get("billing_details") or {}
+                    cname    = billing.get("name") or charge.get("description") or charge.get("customer") or "Unknown"
                     if amount > 0:
+                        seen.add(charge_id)
                         results.append({"name": cname, "amount": amount, "time": time_str})
                 except Exception:
                     continue
@@ -308,8 +313,9 @@ def fetch_today_invoices(subs):
                 break
             params["starting_after"] = page.data[-1].id
     except Exception as e:
-        print(f"  Warning: could not fetch today's invoices: {e}")
+        print(f"  Warning (charges): {e}")
     results.sort(key=lambda x: x["time"], reverse=True)
+    print(f"  {len(results)} charge(s) in last 24h")
     return results
 
 
@@ -598,9 +604,9 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
       <div class="sub">{metrics["annual_count"]} annual · ${metrics["annual_mrr"]:,.0f}/mo equiv.</div>
     </div>
     <div class="mc">
-      <div class="lbl">Collected today</div>
+      <div class="lbl">Recent collected</div>
       <div class="val" style="color:{'var(--green)' if today_total>0 else 'var(--text3)'}">{today_total_fmt}</div>
-      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · USD equiv.</div>
+      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · last 24h · USD</div>
     </div>
   </div>
 
