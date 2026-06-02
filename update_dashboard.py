@@ -130,11 +130,13 @@ def build_rows(subs):
     for sub in subs:
         cust = sub.customer
         if isinstance(cust, str):
-            cust_id, name, email = cust, "", ""
+            cust_id, name, email, country = cust, "", "", ""
         else:
             cust_id = getattr(cust, "id", "") or ""
             name    = (getattr(cust, "name", "") or "").strip()
             email   = (getattr(cust, "email", "") or "").strip()
+            addr    = getattr(cust, "address", None)
+            country = (getattr(addr, "country", None) or "").upper() if addr else ""
 
         display = name or email or cust_id
         label   = stripe_status_to_label(sub.status)
@@ -176,6 +178,7 @@ def build_rows(subs):
                 "amount_usd": amount_usd,
                 "proj":       proj,
                 "next_inv":   next_inv,
+                "country":    country,
             }
         else:
             ex = customers[cust_id]
@@ -190,12 +193,13 @@ def build_rows(subs):
     rows = []
     for info in customers.values():
         rows.append([
-            info["name"],
-            info["status"],
-            info["interval"],
-            info["amount_usd"],
-            info["proj"],
-            info["next_inv"],
+            info["name"],         # 0
+            info["status"],       # 1
+            info["interval"],     # 2
+            info["amount_usd"],   # 3
+            info["proj"],         # 4
+            info["next_inv"],     # 5
+            info.get("country",""), # 6
         ])
 
     rows.sort(key=lambda r: r[3], reverse=True)
@@ -320,21 +324,14 @@ def _to_usd(amount_cents, currency):
     return round(amount, 2)  # fallback: treat as USD if rate unknown
 
 
-def fetch_monthly_collected():
-    """
-    Fetch all paid invoices from Jan–Dec 2026 and return collected USD amounts per month.
-    Uses FX rates for accurate USD conversion.
-    Returns list of 12 floats [jan, feb, ..., dec].
-    """
-    collected = [0.0] * 12
-    start_ts  = int(PERIOD_START.timestamp())
-    end_ts    = int(PERIOD_END.timestamp())
+def _fetch_month_collected(mi):
+    """Fetch total USD collected for a single month index (0=Jan..11=Dec)."""
+    month_start = datetime(2026, mi + 1, 1, tzinfo=timezone.utc)
+    month_end   = datetime(2027, 1, 1, tzinfo=timezone.utc) if mi == 11 else datetime(2026, mi + 2, 1, tzinfo=timezone.utc)
+    start_ts, end_ts = int(month_start.timestamp()), int(month_end.timestamp())
+    total = 0.0
     try:
-        params = {
-            "status":   "paid",
-            "created":  {"gte": start_ts, "lte": end_ts},
-            "limit":    100,
-        }
+        params = {"status": "paid", "created": {"gte": start_ts, "lte": end_ts}, "limit": 100}
         while True:
             page = stripe.Invoice.list(**params)
             for inv in page.data:
@@ -344,16 +341,67 @@ def fetch_monthly_collected():
                     ts     = d.get("status_transitions", {}).get("paid_at") or d.get("created") or 0
                     if amount > 0 and ts:
                         dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
-                        mi = _month_index(dt)
-                        if 0 <= mi <= 11:
-                            collected[mi] = round(collected[mi] + amount, 2)
+                        if _month_index(dt) == mi:
+                            total = round(total + amount, 2)
                 except Exception:
                     continue
             if not page.has_more:
                 break
             params["starting_after"] = page.data[-1].id
     except Exception as e:
-        print(f"  Warning: could not fetch monthly collected: {e}")
+        print(f"  Warning fetching month {mi+1}: {e}")
+    return total
+
+
+def fetch_monthly_collected():
+    """
+    Fetch collected USD per month for Jan-Dec 2026.
+    Past months are cached in collected_cache.json — values are frozen once a
+    month completes so daily FX rate changes don't alter historical figures.
+    Current and future months are always re-fetched.
+    """
+    cache_file = "collected_cache.json"
+    try:
+        with open(cache_file) as f:
+            cache = json.load(f)
+    except Exception:
+        cache = {}
+
+    now = datetime.now(timezone.utc)
+    # Current month index in 2026 (0-11), or 11 if we're in 2027+
+    if now.year == 2026:
+        current_mi = now.month - 1
+    elif now.year > 2026:
+        current_mi = 12  # all months are past
+    else:
+        current_mi = 0   # all months are future
+
+    collected = [0.0] * 12
+    cache_updated = False
+
+    for mi in range(12):
+        key = f"2026-{mi+1:02d}"
+        if mi < current_mi and key in cache:
+            # Past month already cached — use frozen value
+            collected[mi] = cache[key]
+        else:
+            # Current month or not yet cached — fetch fresh
+            val = _fetch_month_collected(mi)
+            collected[mi] = val
+            # Freeze past months into cache
+            if mi < current_mi:
+                cache[key] = val
+                cache_updated = True
+                print(f"  Cached {key}: ${val:,.2f}")
+
+    if cache_updated:
+        try:
+            with open(cache_file, "w") as f:
+                json.dump(cache, f, indent=2)
+            print(f"  collected_cache.json updated ({sum(1 for v in cache.values() if v>0)} months)")
+        except Exception as e:
+            print(f"  Warning: could not save cache: {e}")
+
     return collected
 
 
@@ -437,7 +485,7 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .mc .sub{{font-size:11px;color:var(--text3);margin-top:5px}}
 .charts-row{{display:grid;grid-template-columns:3fr 2fr;gap:12px;margin-bottom:1.5rem}}
 .card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem}}
-.card-title{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}}
+.card-title{{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:14px}}
 /* bar chart */
 .bchart{{display:flex;gap:5px;align-items:flex-end;height:130px;margin-bottom:4px}}
 .bcol{{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:2px;cursor:pointer;transition:opacity .15s}}
@@ -601,15 +649,17 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
         </select>
       </div>
     </div>
+    <p id="tbl-hint" style="font-size:12px;color:var(--text3);margin-bottom:10px"></p>
     <div class="tbl-wrap">
       <table>
         <thead><tr>
-          <th style="width:33%">Customer</th>
-          <th style="width:13%">Status</th>
-          <th style="width:16%">Next invoice</th>
-          <th style="width:13%" class="r col-annual">Annual total</th>
-          <th style="width:13%" class="r">Base amount</th>
-          <th style="width:9%">Interval</th>
+          <th style="width:28%">Customer</th>
+          <th style="width:9%">Country</th>
+          <th style="width:12%">Status</th>
+          <th style="width:14%">Next invoice</th>
+          <th style="width:12%" class="r col-annual">Annual total</th>
+          <th style="width:12%" class="r">Base amount</th>
+          <th style="width:8%">Interval</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
@@ -643,6 +693,8 @@ function byStatus(){{
 function prevMonth(){{if(mi>0)setMonth(mi-1);else if(mi===-1)setMonth(11);}}
 function nextMonth(){{if(mi<11)setMonth(mi+1);else setMonth(-1);}}
 
+function flag(c){{if(!c||c.length!==2)return"";return String.fromCodePoint(c.charCodeAt(0)+127397)+String.fromCodePoint(c.charCodeAt(1)+127397);}}
+
 function setMonth(i){{
   mi=i;
   const isYr=mi===-1;
@@ -650,7 +702,8 @@ function setMonth(i){{
   document.getElementById("cmp-prev").disabled=false;
   document.getElementById("cmp-next").disabled=false;
   document.getElementById("sel-title").textContent=isYr?"Full Year 2026":MONTHS[mi];
-  document.getElementById("tbl-title").textContent=isYr?"All customers":"Customers — "+MONTHS[mi];
+  document.getElementById("tbl-title").textContent=isYr?"All customers — Full Year 2026":"Customers with revenue in "+MONTHS[mi];
+  document.getElementById("tbl-hint").textContent=isYr?"Showing all customers across Jan–Dec 2026":"Only customers with expected revenue this month · Select \"Year\" in the cashflow chart to see all";
   document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
   updateAll();
 }}
@@ -766,8 +819,10 @@ function _render(){{
   document.getElementById("tbody").innerHTML=rows.map((r,i)=>{{
     const prob=r[1]==="Past due"||r[1]==="Unpaid";
     const annualTotal=r[2]==="Annual"?r[3]:r[3]*12;
+    const ctry=r[6]||"";
     return `<tr>
-      <td style="font-weight:500">${{r[0]}}</td>
+      <td style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{r[0]}}</td>
+      <td style="font-size:16px;text-align:center" title="${{ctry}}">${{flag(ctry)}}</td>
       <td><span class="badge ${{BC[r[1]]||"b-unpaid"}}">${{r[1]}}</span></td>
       <td style="font-size:12px;color:${{prob?"var(--red)":"var(--text2)"}};font-weight:${{prob?500:400}}">${{r[5]||"—"}}</td>
       <td class="r col-annual" style="color:var(--text2)">${{annualTotal>0?fmt(annualTotal):"—"}}</td>
