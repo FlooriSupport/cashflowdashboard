@@ -135,8 +135,19 @@ def build_rows(subs):
             cust_id = getattr(cust, "id", "") or ""
             name    = (getattr(cust, "name", "") or "").strip()
             email   = (getattr(cust, "email", "") or "").strip()
-            addr    = getattr(cust, "address", None)
-            country = (getattr(addr, "country", None) or "").upper() if addr else ""
+            # Try address object first, then dict fallback, then shipping
+            country = ""
+            try:
+                addr = getattr(cust, "address", None)
+                if addr:
+                    country = (getattr(addr, "country", None) or "").upper()
+                if not country:
+                    cust_d = cust.to_dict() if hasattr(cust, "to_dict") else {}
+                    country = (((cust_d.get("address") or {}).get("country") or
+                                (cust_d.get("shipping") or {}).get("address", {}).get("country") or
+                                "")).upper()
+            except Exception:
+                country = ""
 
         display = name or email or cust_id
         label   = stripe_status_to_label(sub.status)
@@ -265,24 +276,29 @@ def compute_subscription_metrics(subs):
 
 
 def fetch_today_invoices(subs):
-    """Fetch invoices paid in last 24h via Invoice.list, with FX rate USD conversion."""
+    """
+    Fetch invoices paid in last 24h using the Events API.
+    Events are indexed by when the payment HAPPENED, not when the invoice was created.
+    This correctly surfaces invoices created weeks ago but paid yesterday.
+    """
     import time
     since = int(time.time()) - 86400
     results = []
     try:
         params = {
-            "status":   "paid",
-            "created":  {"gte": since},
-            "limit":    100,
+            "type":    "invoice.payment_succeeded",
+            "created": {"gte": since},
+            "limit":   100,
         }
         while True:
-            page = stripe.Invoice.list(**params)
-            for inv in page.data:
+            page = stripe.Event.list(**params)
+            for event in page.data:
                 try:
-                    d      = inv.to_dict()
-                    amount = _to_usd(d.get("amount_paid", 0), d.get("currency", "usd"))
-                    ts     = d.get("status_transitions", {}).get("paid_at") or d.get("created") or 0
-                    cname  = d.get("customer_name") or d.get("customer_email") or "Unknown"
+                    ev_dict  = event.to_dict()
+                    inv_dict = ev_dict.get("data", {}).get("object", {}) or {}
+                    amount   = _to_usd(inv_dict.get("amount_paid", 0), inv_dict.get("currency", "usd"))
+                    ts       = ev_dict.get("created", 0)
+                    cname    = inv_dict.get("customer_name") or inv_dict.get("customer_email") or "Unknown"
                     time_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%H:%M UTC") if ts else ""
                     if amount > 0:
                         results.append({"name": cname, "amount": amount, "time": time_str})
@@ -485,7 +501,7 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .mc .sub{{font-size:11px;color:var(--text3);margin-top:5px}}
 .charts-row{{display:grid;grid-template-columns:3fr 2fr;gap:12px;margin-bottom:1.5rem}}
 .card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem}}
-.card-title{{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:14px}}
+.card-title{{font-size:12px;font-weight:600;color:var(--text);text-transform:uppercase;letter-spacing:.04em;margin-bottom:14px}}
 /* bar chart */
 .bchart{{display:flex;gap:5px;align-items:flex-end;height:130px;margin-bottom:4px}}
 .bcol{{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:2px;cursor:pointer;transition:opacity .15s}}
@@ -501,7 +517,7 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .dot{{width:10px;height:10px;border-radius:2px;display:inline-block}}
 /* comparison card */
 .cmp-nav{{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}}
-.cmp-mo{{font-size:15px;font-weight:500}}
+.cmp-mo{{font-size:15px;font-weight:500;color:var(--text)}}
 .nav-btn{{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r);padding:4px 10px;cursor:pointer;color:var(--text);font-size:13px}}
 .nav-btn:disabled{{opacity:.35;cursor:default}}
 .cmp-bars{{display:flex;gap:16px;margin-bottom:10px}}
@@ -591,7 +607,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
   <div class="charts-row">
     <!-- Card 1: Full year expected (clickable to select month) -->
     <div class="card">
-      <div class="card-title">Expected cashflow — Jan to Dec 2026 <span style="font-size:10px;font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0">(click month to filter)</span></div>
+      <div class="card-title" style="color:var(--text)">Expected cashflow — Jan to Dec 2026 <span style="font-size:10px;font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0">(click month to filter)</span></div>
       <div class="bchart" id="barchart"></div>
       <div class="chart-legend">
         <span><span class="dot" style="background:var(--gbar)"></span>Expected (active subs)</span>
@@ -626,20 +642,20 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
 
   <div class="row2">
     <div class="card">
-      <div class="card-title" id="sel-title">Selected period</div>
+      <div class="card-title" style="color:var(--text)" id="sel-title">Selected period</div>
       <div class="kv"><span class="k">Expected revenue</span><span class="v green" id="sel-expected">—</span></div>
       <div class="kv"><span class="k">Active paying customers</span><span class="v" id="sel-active-count">—</span></div>
       <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
     </div>
     <div class="card">
-      <div class="card-title">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h · USD equiv.)</span></div>
+      <div class="card-title" style="color:var(--text)">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h · USD equiv.)</span></div>
       {"<div class='inv-wrap'><table class='inv-table'><thead><tr><th>Customer</th><th class='r'>Amount</th><th>Time</th></tr></thead><tbody>" + today_rows_html + "</tbody></table></div>" if today_invoices else "<div class='empty'>No payments in the last 24h</div>"}
     </div>
   </div>
 
   <div class="tbl-section">
     <div class="tbl-header">
-      <div class="card-title" id="tbl-title" style="margin-bottom:0">All customers</div>
+      <div class="card-title" style="color:var(--text)" id="tbl-title" style="margin-bottom:0">All customers</div>
       <div class="tbl-controls">
         <input id="search" placeholder="Search…" oninput="renderTable()">
         <select id="flt" onchange="updateAll()">
