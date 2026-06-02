@@ -277,11 +277,23 @@ def compute_subscription_metrics(subs):
 
 def fetch_today_invoices(subs):
     """
-    Fetch all successful payments in the last 24h using charge.succeeded events.
-    Covers both subscription charges and one-time charges.
+    Fetch all successful charges since yesterday midnight UTC.
+    Using 'since yesterday midnight' instead of 'last 24h rolling window' ensures
+    all transactions from the previous calendar day are always shown, regardless
+    of what time the script runs.
+    Uses charge.succeeded events (covers subscriptions AND one-time charges).
     """
-    import time
-    since = int(time.time()) - 86400
+    # Yesterday midnight UTC — always show the full previous day
+    now       = datetime.now(timezone.utc)
+    yesterday = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    # If it's before noon UTC, also include the day before yesterday
+    # so transactions from 2 days ago aren't missed on early-morning runs
+    if now.hour < 12:
+        import calendar as _cal
+        d = yesterday - __import__('datetime').timedelta(days=1)
+        yesterday = d
+    since = int(yesterday.timestamp())
+
     seen = set()
     results = []
     try:
@@ -295,18 +307,25 @@ def fetch_today_invoices(subs):
                     charge_id = charge.get("id", "")
                     if charge_id in seen:
                         continue
+                    # Only captured, non-refunded charges
                     if not charge.get("captured", False):
                         continue
                     if charge.get("refunded", False):
                         continue
                     amount   = _to_usd(charge.get("amount", 0), charge.get("currency", "usd"))
+                    if amount <= 0:
+                        continue
                     ts       = ev_dict.get("created", 0)
-                    time_str = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%H:%M UTC") if ts else ""
+                    dt_str   = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d %H:%M UTC") if ts else ""
+                    # Use email as identifier (more meaningful than cardholder name or invoice ID)
                     billing  = charge.get("billing_details") or {}
-                    cname    = billing.get("name") or charge.get("description") or charge.get("customer") or "Unknown"
-                    if amount > 0:
-                        seen.add(charge_id)
-                        results.append({"name": cname, "amount": amount, "time": time_str})
+                    cname    = (billing.get("email") or
+                                billing.get("name") or
+                                charge.get("receipt_email") or
+                                charge.get("customer") or
+                                "Unknown")
+                    seen.add(charge_id)
+                    results.append({"name": cname, "amount": amount, "time": dt_str})
                 except Exception:
                     continue
             if not page.has_more:
@@ -315,7 +334,7 @@ def fetch_today_invoices(subs):
     except Exception as e:
         print(f"  Warning (charges): {e}")
     results.sort(key=lambda x: x["time"], reverse=True)
-    print(f"  {len(results)} charge(s) in last 24h")
+    print(f"  {len(results)} charge(s) since {yesterday.strftime('%Y-%m-%d')} UTC")
     return results
 
 
@@ -606,7 +625,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
     <div class="mc">
       <div class="lbl">Recent collected</div>
       <div class="val" style="color:{'var(--green)' if today_total>0 else 'var(--text3)'}">{today_total_fmt}</div>
-      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · last 24h · USD</div>
+      <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · since yesterday · USD</div>
     </div>
   </div>
 
