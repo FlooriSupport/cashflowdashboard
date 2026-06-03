@@ -137,15 +137,20 @@ def build_rows(subs):
             email   = (getattr(cust, "email", "") or "").strip()
             # Try address object first, then dict fallback, then shipping
             country = ""
+            cust_type = ""
             try:
                 addr = getattr(cust, "address", None)
                 if addr:
                     country = (getattr(addr, "country", None) or "").upper()
+                cust_d = cust.to_dict() if hasattr(cust, "to_dict") else {}
                 if not country:
-                    cust_d = cust.to_dict() if hasattr(cust, "to_dict") else {}
                     country = (((cust_d.get("address") or {}).get("country") or
                                 (cust_d.get("shipping") or {}).get("address", {}).get("country") or
                                 "")).upper()
+                meta = cust_d.get("metadata") or {}
+                cust_type = (meta.get("type") or meta.get("customer_type") or
+                             meta.get("segment") or meta.get("industry") or
+                             meta.get("category") or "").strip()
             except Exception:
                 country = ""
 
@@ -190,9 +195,12 @@ def build_rows(subs):
                 "proj":       proj,
                 "next_inv":   next_inv,
                 "country":    country,
+                "cust_type":  cust_type,
             }
         else:
             ex = customers[cust_id]
+            if not ex.get("cust_type") and cust_type:
+                ex["cust_type"] = cust_type
             # Escalate status if worse
             if priority.get(label, 0) > priority.get(ex["status"], 0):
                 ex["status"]   = label
@@ -204,13 +212,14 @@ def build_rows(subs):
     rows = []
     for info in customers.values():
         rows.append([
-            info["name"],         # 0
-            info["status"],       # 1
-            info["interval"],     # 2
-            info["amount_usd"],   # 3
-            info["proj"],         # 4
-            info["next_inv"],     # 5
-            info.get("country",""), # 6
+            info["name"],              # 0
+            info["status"],            # 1
+            info["interval"],          # 2
+            info["amount_usd"],        # 3
+            info["proj"],              # 4
+            info["next_inv"],          # 5
+            info.get("country",""),    # 6
+            info.get("cust_type",""),  # 7
         ])
 
     rows.sort(key=lambda r: r[3], reverse=True)
@@ -593,7 +602,23 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
 .pag button:disabled{{opacity:.35;cursor:default}}
 .pag button:not(:disabled):hover{{background:var(--bg2)}}
 #ct-lbl{{margin-left:auto;font-size:12px}}
-@media(max-width:700px){{.metrics{{grid-template-columns:repeat(2,1fr)}}.charts-row,.row2{{grid-template-columns:1fr}}}}
+@media(max-width:700px){{.metrics{{grid-template-columns:repeat(2,1fr)}}.charts-row,.row2,.analytics-grid{{grid-template-columns:1fr}}}}
+/* tabs */
+.tabs{{display:flex;gap:2px;margin-bottom:1.5rem;background:var(--bg2);border-radius:var(--rl);padding:4px}}
+.tab-btn{{flex:1;padding:8px 16px;border:none;border-radius:var(--r);cursor:pointer;font-size:13px;font-weight:500;color:var(--text2);background:transparent;transition:all .15s}}
+.tab-btn.active{{background:var(--bg);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}}
+/* analytics */
+.analytics-grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.5rem}}
+.ctry-row{{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border2)}}
+.ctry-row:last-child{{border-bottom:none}}
+.ctry-flag{{font-size:20px;width:28px;text-align:center;flex-shrink:0}}
+.ctry-name{{font-size:13px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.ctry-bar-wrap{{width:90px;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden;flex-shrink:0}}
+.ctry-bar-fill{{height:100%;border-radius:3px;background:var(--gbar)}}
+.ctry-val{{font-size:12px;font-variant-numeric:tabular-nums;width:56px;text-align:right;flex-shrink:0}}
+.ctry-count{{font-size:11px;color:var(--text3);width:36px;text-align:right;flex-shrink:0}}
+.type-pill{{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;border-radius:20px;background:var(--bg2);color:var(--text2);margin:3px}}
+.type-unknown{{font-size:12px;color:var(--text3);font-style:italic;padding:8px 0}}
 </style>
 </head>
 <body>
@@ -606,6 +631,12 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
     </div>
   </div>
 
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-overview" onclick="switchTab('overview')">Overview</button>
+    <button class="tab-btn" id="tab-analytics" onclick="switchTab('analytics')">Analytics</button>
+  </div>
+
+  <div id="page-overview">
   <div class="metrics">
     <div class="mc">
       <div class="lbl">Total MRR</div>
@@ -710,6 +741,26 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
       <span id="pg-info">Page 1 of 1</span>
       <button id="next-pg" onclick="go(1)">Next →</button>
       <span id="ct-lbl"></span>
+    </div>
+  </div>
+
+  </div><!-- /page-overview -->
+
+  <!-- Analytics page -->
+  <div id="page-analytics" style="display:none">
+    <div class="analytics-grid">
+      <div class="card">
+        <div class="card-title" style="color:var(--text)">MRR by country</div>
+        <div id="mrr-by-country"><div class="type-unknown">Loading…</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="color:var(--text)">Customers by country</div>
+        <div id="cust-by-country"><div class="type-unknown">Loading…</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="color:var(--text)">Customer type distribution</div>
+      <div id="type-distribution"><div class="type-unknown">Loading…</div></div>
     </div>
   </div>
 
@@ -874,6 +925,82 @@ function _render(){{
 }}
 
 setMonth(4); // default: May 2026
+
+// ── Tab navigation ────────────────────────────────────────────────────────────
+function switchTab(tab){{
+  document.getElementById("page-overview").style.display = tab==="overview"?"":"none";
+  document.getElementById("page-analytics").style.display = tab==="analytics"?"":"none";
+  document.getElementById("tab-overview").classList.toggle("active", tab==="overview");
+  document.getElementById("tab-analytics").classList.toggle("active", tab==="analytics");
+  if(tab==="analytics") renderAnalytics();
+}}
+
+// ── Analytics rendering ───────────────────────────────────────────────────────
+function renderAnalytics(){{
+  // Aggregate by country (all non-cancelled customers)
+  const all=D;
+  const byCtry={{}};
+  all.forEach(r=>{{
+    const c=r[6]||"";
+    const k=c||"Unknown";
+    const mrr=r[1]==="Active"?(r[2]==="Annual"?r[3]/12:r[3]):0;
+    if(!byCtry[k]) byCtry[k]={{mrr:0,count:0,active:0}};
+    byCtry[k].mrr+=mrr;
+    byCtry[k].count+=1;
+    if(r[1]==="Active") byCtry[k].active+=1;
+  }});
+
+  const sorted=Object.entries(byCtry).sort((a,b)=>b[1].mrr-a[1].mrr);
+  const maxMrr=sorted.length?sorted[0][1].mrr||1:1;
+  const totalMrr=sorted.reduce((s,[,v])=>s+v.mrr,0);
+
+  // MRR by country
+  const mrrHtml=sorted.map(([ctry,v])=>{{
+    const pct=Math.round((v.mrr/maxMrr)*100);
+    const share=totalMrr>0?Math.round(v.mrr/totalMrr*100):0;
+    return `<div class="ctry-row">
+      <span class="ctry-flag">${{flag(ctry)}}</span>
+      <span class="ctry-name">${{ctry==="Unknown"?"Unknown":ctry}}</span>
+      <div class="ctry-bar-wrap"><div class="ctry-bar-fill" style="width:${{pct}}%"></div></div>
+      <span class="ctry-val" style="color:var(--green);font-weight:500">${{fmtS(v.mrr)}}/mo</span>
+      <span class="ctry-count" style="color:var(--text3)">${{share}}%</span>
+    </div>`;
+  }}).join("");
+  document.getElementById("mrr-by-country").innerHTML=mrrHtml||"<div class='type-unknown'>No data</div>";
+
+  // Customers by country
+  const custHtml=sorted.map(([ctry,v])=>{{
+    const pct=Math.round((v.count/all.length)*100);
+    return `<div class="ctry-row">
+      <span class="ctry-flag">${{flag(ctry)}}</span>
+      <span class="ctry-name">${{ctry==="Unknown"?"Unknown":ctry}}</span>
+      <div class="ctry-bar-wrap"><div class="ctry-bar-fill" style="width:${{Math.round(v.count/all.length*100)}}%;background:var(--bbar)"></div></div>
+      <span class="ctry-val">${{v.count}} cust.</span>
+      <span class="ctry-count" style="color:var(--text3)">${{pct}}%</span>
+    </div>`;
+  }}).join("");
+  document.getElementById("cust-by-country").innerHTML=custHtml||"<div class='type-unknown'>No data</div>";
+
+  // Customer types
+  const byType={{}};
+  let hasType=false;
+  all.forEach(r=>{{
+    const t=(r[7]||"").trim();
+    if(t){{ hasType=true; byType[t]=(byType[t]||0)+1; }}
+    else{{ byType["Unclassified"]=(byType["Unclassified"]||0)+1; }}
+  }});
+  const typeColors={{
+    "retailer":"#639922","supplier":"#185FA5","manufacturer":"#854F0B",
+    "ecommerce":"#635BFF","distributor":"#A32D2D","Unclassified":"#9e9d98"
+  }};
+  const typeHtml=Object.entries(byType).sort((a,b)=>b[1]-a[1]).map(([t,n])=>{{
+    const col=typeColors[t.toLowerCase()]||"#888780";
+    return `<span class="type-pill" style="background:${{col}}22;color:${{col}}">${{t}} (${{n}})</span>`;
+  }}).join("");
+  document.getElementById("type-distribution").innerHTML=hasType
+    ? typeHtml
+    : `<p class="type-unknown">No customer type data found in Stripe metadata.<br>To enable this, add a <code>type</code> key to each customer's metadata in Stripe (e.g. retailer, supplier, manufacturer, ecommerce).</p>`;
+}}
 </script>
 </body>
 </html>"""
