@@ -114,6 +114,9 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
 /* tabs */
 .tabs{display:flex;gap:2px;margin-bottom:1.5rem;background:var(--bg2);border-radius:var(--rl);padding:4px}
 .tab-btn{flex:1;padding:8px 16px;border:none;border-radius:var(--r);cursor:pointer;font-size:13px;font-weight:500;color:var(--text2);background:transparent;transition:all .15s}
+.icon-btn{display:inline-flex;align-items:center;gap:5px;border:0.5px solid var(--border);border-radius:var(--r);padding:6px 12px;font-size:12px;font-weight:500;cursor:pointer;background:var(--bg);color:var(--text2);transition:all .15s;text-decoration:none}
+.icon-btn:hover{background:var(--bg2);color:var(--text)}
+.icon-btn svg{width:14px;height:14px;flex-shrink:0}
 .tab-btn.active{background:var(--bg);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
 /* analytics */
 .analytics-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.5rem}
@@ -134,7 +137,17 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: Jun 03, 2026 at 12:12 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: Jun 03, 2026 at 12:17 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="icon-btn" onclick="location.reload()" title="Reload page to see latest data">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.2"/><path d="M13.5 2.5v2.2H11.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Refresh
+      </button>
+      <button class="icon-btn" id="export-btn" onclick="exportCurrentPage()" title="Export current page as CSV">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0-2.5-2.5M8 10l2.5-2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13h10" stroke-linecap="round"/></svg>
+        Export CSV
+      </button>
     </div>
   </div>
 
@@ -436,6 +449,59 @@ function _render(){
       <td><span class="freq">${r[2]}</span></td>
     </tr>`;
   }).join("");
+}
+
+
+// ── CSV export ────────────────────────────────────────────────────────────────
+function _csvBlob(headers, rows){
+  const esc=v=>`"${String(v).replace(/"/g,'""')}"`;
+  const lines=[headers.map(esc).join(','),...rows.map(r=>r.map(esc).join(','))];
+  return new Blob([lines.join('
+')],{type:'text/csv;charset=utf-8'});
+}
+function _download(blob,filename){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=filename;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function exportCurrentPage(){
+  const isAnalytics=document.getElementById('page-analytics').style.display!=='none';
+  if(isAnalytics){
+    exportAnalytics();
+  }else{
+    exportOverview();
+  }
+}
+
+function exportOverview(){
+  const month=mi===-1?'FullYear2026':MONTHS[mi].replace(' ','');
+  const headers=['Customer','Status','Interval','Base USD','Annual Total USD','Next Invoice','Country','Customer Type'];
+  const rows=getFiltered().map(r=>{
+    const annual=r[2]==='Annual'?r[3]:r[3]*12;
+    return [r[0],r[1],r[2],r[3],annual,r[5]||'',ctryName(r[6]||''),r[7]||''];
+  });
+  _download(_csvBlob(headers,rows),`floori-customers-${month}.csv`);
+}
+
+function exportAnalytics(){
+  const byCtry={};
+  D.forEach(r=>{
+    const code=r[6]||'';const k=code||'Unknown';
+    const mrr=r[1]==='Active'?(r[2]==='Annual'?r[3]/12:r[3]):0;
+    if(!byCtry[k]) byCtry[k]={mrr:0,count:0,active:0};
+    byCtry[k].mrr+=mrr;byCtry[k].count+=1;
+    if(r[1]==='Active') byCtry[k].active+=1;
+  });
+  const totalMrr=Object.values(byCtry).reduce((s,v)=>s+v.mrr,0);
+  const sorted=Object.entries(byCtry).sort((a,b)=>b[1].mrr-a[1].mrr||b[1].count-a[1].count);
+  const headers=['Country Code','Country Name','Customers','Active','MRR USD/mo','MRR Share %'];
+  const rows=sorted.map(([code,v])=>{
+    const share=totalMrr>0?((v.mrr/totalMrr)*100).toFixed(1):'0.0';
+    return [code,ctryName(code),v.count,v.active,v.mrr.toFixed(2),share];
+  });
+  _download(_csvBlob(headers,rows),'floori-analytics-by-country.csv');
 }
 
 setMonth(4); // default: May 2026
