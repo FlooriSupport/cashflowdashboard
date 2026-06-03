@@ -356,8 +356,8 @@ def fetch_today_invoices(subs):
                     dt_str   = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%b %d %H:%M UTC") if ts else ""
                     # Use email as identifier (more meaningful than cardholder name or invoice ID)
                     billing  = charge.get("billing_details") or {}
-                    cname    = (billing.get("email") or
-                                billing.get("name") or
+                    cname    = (billing.get("name") or
+                                billing.get("email") or
                                 charge.get("receipt_email") or
                                 charge.get("customer") or
                                 "Unknown")
@@ -424,12 +424,12 @@ def _fetch_month_collected(mi):
             page = stripe.Invoice.list(**params)
             for inv in page.data:
                 try:
-                    d       = inv.to_dict()
-                    # Only count invoices with an actual charge (card payment).
-                    # Invoices paid via credit balance, manual marking, or bank
-                    # transfer have no charge object and should not be counted —
-                    # they do not appear in Stripe's charges/transactions export.
-                    if not d.get("charge"):
+                    d = inv.to_dict()
+                    # Only count auto-charged invoices (card payments).
+                    # "charge_automatically" = subscription charged to card on file.
+                    # "send_invoice" = manually sent invoices (may be paid via bank/manual).
+                    # This filter does not require Charges: Read permission.
+                    if d.get("collection_method") != "charge_automatically":
                         continue
                     paid_at = (d.get("status_transitions") or {}).get("paid_at") or 0
                     if not paid_at:
@@ -458,9 +458,12 @@ def fetch_monthly_collected():
     Current and future months are always re-fetched.
     """
     cache_file = "collected_cache.json"
+    CACHE_VER = "v2"  # bump when collection logic changes to force recalc
     try:
         with open(cache_file) as f:
-            cache = json.load(f)
+            raw = json.load(f)
+        # If version doesn't match, discard old cache so values recalculate
+        cache = raw if raw.get("__version__") == CACHE_VER else {}
     except Exception:
         cache = {}
 
@@ -493,6 +496,7 @@ def fetch_monthly_collected():
 
     if cache_updated:
         try:
+            cache["__version__"] = "v2"
             with open(cache_file, "w") as f:
                 json.dump(cache, f, indent=2)
             print(f"  collected_cache.json updated ({sum(1 for v in cache.values() if v>0)} months)")
