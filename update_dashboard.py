@@ -972,42 +972,24 @@ function _render(){{
 }}
 
 
-// ── CSV export (NL defined to avoid f-string \n issues) ─────────────────────
+// CSV export helpers
 const NL=String.fromCodePoint(10);
 const CTRY_NAMES={{"US":"United States","AU":"Australia","BR":"Brazil","ZA":"South Africa","GB":"United Kingdom","NL":"Netherlands","AR":"Argentina","MX":"Mexico","JP":"Japan","SG":"Singapore","DK":"Denmark","IT":"Italy","NZ":"New Zealand","CA":"Canada","DE":"Germany","FR":"France","ES":"Spain","PT":"Portugal","IL":"Israel","MA":"Morocco","BE":"Belgium","CZ":"Czech Republic","AT":"Austria","CH":"Switzerland","SE":"Sweden","NO":"Norway","FI":"Finland","PL":"Poland","CO":"Colombia","CL":"Chile","IN":"India","AE":"UAE","ID":"Indonesia","MY":"Malaysia","TH":"Thailand","PE":"Peru","UY":"Uruguay"}};
 function ctryName(c){{return CTRY_NAMES[c]||(c||"Unknown");}}
-
-function _csvBlob(headers,rows){{
-  const esc=v=>['"',String(v).replace(/"/g,'""'),'"'].join('');
-  return new Blob([[headers,,...rows].map(r=>r.map(esc).join(',')).join(NL)],{{type:'text/csv;charset=utf-8'}});
-}}
-function _download(blob,fname){{
-  const a=Object.assign(document.createElement('a'),{{href:URL.createObjectURL(blob),download:fname}});
-  a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-}}
-function exportCurrentPage(){{
-  const isAnalytics=document.getElementById('page-analytics').style.display!=='none';
-  isAnalytics?exportAnalytics():exportOverview();
-}}
+function _dl(blob,fname){{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1e3);}}
+function _csv(hdrs,rows){{const q=v=>'"'+String(v).split('"').join('""')+'"';return new Blob([[hdrs,...rows].map(r=>r.map(q).join(',')).join(NL)],{{type:'text/csv'}});}}
+function exportCurrentPage(){{document.getElementById('page-analytics').style.display!=='none'?exportAnalytics():exportOverview();}}
 function exportOverview(){{
   const mo=mi===-1?'FullYear2026':MONTHS[mi].replace(' ','');
-  const hdrs=['Customer','Status','Interval','Base USD','Annual Total USD','Next Invoice','Country','Customer Type'];
-  const rows=getFiltered().map(r=>{{
-    const ann=r[2]==='Annual'?r[3]:r[3]*12;
-    return [r[0],r[1],r[2],r[3],ann,r[5]||'',ctryName(r[6]||''),r[7]||''];
-  }});
-  _download(_csvBlob(hdrs,rows),'floori-customers-'+mo+'.csv');
+  const rows=getFiltered().map(r=>{{const ann=r[2]==='Annual'?r[3]:r[3]*12;return [r[0],r[1],r[2],r[3],ann,r[5]||'',ctryName(r[6]||''),r[7]||''];}});
+  _dl(_csv(['Customer','Status','Interval','Base USD','Annual USD','Next Invoice','Country','Type'],rows),'floori-customers-'+mo+'.csv');
 }}
 function exportAnalytics(){{
-  const byC={{}};
-  D.forEach(r=>{{const k=r[6]||'Unknown';const mrr=r[1]==='Active'?(r[2]==='Annual'?r[3]/12:r[3]):0;
-    if(!byC[k])byC[k]={{mrr:0,count:0,active:0}};byC[k].mrr+=mrr;byC[k].count++;if(r[1]==='Active')byC[k].active++;
-  }});
-  const tot=Object.values(byC).reduce((s,v)=>s+v.mrr,0);
-  const rows=Object.entries(byC).sort((a,b)=>b[1].mrr-a[1].mrr).map(([c,v])=>[c,ctryName(c),v.count,v.active,v.mrr.toFixed(2),tot>0?((v.mrr/tot)*100).toFixed(1):'0.0']);
-  _download(_csvBlob(['Code','Country','Customers','Active','MRR/mo','Share%'],rows),'floori-analytics-by-country.csv');
+  const byC={{}};D.forEach(r=>{{const k=r[6]||'Unknown';const m=r[1]==='Active'?(r[2]==='Annual'?r[3]/12:r[3]):0;if(!byC[k])byC[k]={{m:0,n:0,a:0}};byC[k].m+=m;byC[k].n++;if(r[1]==='Active')byC[k].a++;}});
+  const tot=Object.values(byC).reduce((s,v)=>s+v.m,0);
+  const rows=Object.entries(byC).sort((a,b)=>b[1].m-a[1].m).map(([c,v])=>[c,ctryName(c),v.n,v.a,v.m.toFixed(2),tot>0?((v.m/tot)*100).toFixed(1):'0.0']);
+  _dl(_csv(['Code','Country','Customers','Active','MRR/mo','Share%'],rows),'floori-analytics-by-country.csv');
 }}
-
 
 setMonth(4); // default: May 2026
 
