@@ -403,24 +403,38 @@ def _to_usd(amount_cents, currency):
 
 
 def _fetch_month_collected(mi):
-    """Fetch total USD collected for a single month index (0=Jan..11=Dec)."""
+    """
+    Fetch total USD collected for a single month index (0=Jan..11=Dec).
+    Filters by status_transitions.paid_at (when actually paid), NOT by invoice created date.
+    Fetches a 60-day window before the month start to catch invoices created earlier but paid this month.
+    """
+    from datetime import timedelta
     month_start = datetime(2026, mi + 1, 1, tzinfo=timezone.utc)
     month_end   = datetime(2027, 1, 1, tzinfo=timezone.utc) if mi == 11 else datetime(2026, mi + 2, 1, tzinfo=timezone.utc)
-    start_ts, end_ts = int(month_start.timestamp()), int(month_end.timestamp())
+    # Go back 60 days to catch invoices created before the month but paid during it
+    fetch_from  = month_start - timedelta(days=60)
     total = 0.0
     try:
-        params = {"status": "paid", "created": {"gte": start_ts, "lte": end_ts}, "limit": 100}
+        params = {
+            "status":  "paid",
+            "created": {"gte": int(fetch_from.timestamp()), "lte": int(month_end.timestamp())},
+            "limit":   100,
+        }
         while True:
             page = stripe.Invoice.list(**params)
             for inv in page.data:
                 try:
-                    d      = inv.to_dict()
+                    d       = inv.to_dict()
+                    paid_at = (d.get("status_transitions") or {}).get("paid_at") or 0
+                    if not paid_at:
+                        continue
+                    paid_dt = datetime.fromtimestamp(int(paid_at), tz=timezone.utc)
+                    # Only count if the payment happened during this month
+                    if _month_index(paid_dt) != mi:
+                        continue
                     amount = _to_usd(d.get("amount_paid", 0), d.get("currency", "usd"))
-                    ts     = d.get("status_transitions", {}).get("paid_at") or d.get("created") or 0
-                    if amount > 0 and ts:
-                        dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
-                        if _month_index(dt) == mi:
-                            total = round(total + amount, 2)
+                    if amount > 0:
+                        total = round(total + amount, 2)
                 except Exception:
                     continue
             if not page.has_more:
@@ -759,6 +773,13 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
           <option value="Active">Active</option>
           <option value="problem">Problem accounts</option>
         </select>
+        <select id="sort-by" onchange="renderTable()" title="Sort order">
+          <option value="amount-desc">$ High → Low</option>
+          <option value="amount-asc">$ Low → High</option>
+          <option value="name-asc">Name A → Z</option>
+          <option value="name-desc">Name Z → A</option>
+          <option value="country-asc">Country A → Z</option>
+        </select>
       </div>
     </div>
     <p id="tbl-hint" style="font-size:12px;color:var(--text3);margin-bottom:10px"></p>
@@ -944,7 +965,16 @@ function getFiltered(){{
   const q=document.getElementById("search").value.toLowerCase();
   const base=byStatus();
   const byM=mi>=0?base.filter(r=>r[4][mi]>0):base;
-  return byM.filter(r=>!q||r[0].toLowerCase().includes(q));
+  const filtered=byM.filter(r=>!q||r[0].toLowerCase().includes(q));
+  const s=document.getElementById("sort-by")?document.getElementById("sort-by").value:"amount-desc";
+  return filtered.slice().sort((a,b)=>{{
+    if(s==="amount-desc") return b[3]-a[3];
+    if(s==="amount-asc")  return a[3]-b[3];
+    if(s==="name-asc")    return a[0].localeCompare(b[0]);
+    if(s==="name-desc")   return b[0].localeCompare(a[0]);
+    if(s==="country-asc") return (a[6]||"").localeCompare(b[6]||"");
+    return b[3]-a[3];
+  }});
 }}
 
 function renderTable(){{pg=1;_render();}}
