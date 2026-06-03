@@ -116,6 +116,33 @@ def _compute_projections(sub_dict, amount_usd, interval):
     return proj
 
 
+# ── Country name → ISO 2-letter code normalization ──────────────────────────
+_COUNTRY_NORM = {
+    "UNITED STATES": "US", "UNITED STATES OF AMERICA": "US", "USA": "US",
+    "AUSTRALIA": "AU", "UNITED KINGDOM": "GB", "GREAT BRITAIN": "GB",
+    "BRAZIL": "BR", "BRASIL": "BR", "NETHERLANDS": "NL", "HOLLAND": "NL",
+    "SOUTH AFRICA": "ZA", "ARGENTINA": "AR", "MEXICO": "MX",
+    "JAPAN": "JP", "SINGAPORE": "SG", "DENMARK": "DK", "ITALY": "IT",
+    "NEW ZEALAND": "NZ", "CANADA": "CA", "GERMANY": "DE", "FRANCE": "FR",
+    "SPAIN": "ES", "PORTUGAL": "PT", "ISRAEL": "IL", "MOROCCO": "MA",
+    "BELGIUM": "BE", "CZECH REPUBLIC": "CZ", "CZECHIA": "CZ",
+    "AUSTRIA": "AT", "SWITZERLAND": "CH", "SWEDEN": "SE",
+    "NORWAY": "NO", "FINLAND": "FI", "POLAND": "PL",
+    "INDONESIA": "ID", "MALAYSIA": "MY", "THAILAND": "TH",
+    "COLOMBIA": "CO", "CHILE": "CL", "PERU": "PE", "URUGUAY": "UY",
+    "INDIA": "IN", "CHINA": "CN", "UAE": "AE",
+    "UNITED ARAB EMIRATES": "AE",
+}
+
+def _normalize_country(raw: str) -> str:
+    if not raw:
+        return ""
+    up = raw.strip().upper()
+    if len(up) == 2:
+        return up
+    return _COUNTRY_NORM.get(up, up[:2] if len(up) >= 2 else up)
+
+
 def build_rows(subs):
     """
     Build one row per unique customer (by customer ID).
@@ -141,12 +168,13 @@ def build_rows(subs):
             try:
                 addr = getattr(cust, "address", None)
                 if addr:
-                    country = (getattr(addr, "country", None) or "").upper()
+                    country = _normalize_country((getattr(addr, "country", None) or ""))
                 cust_d = cust.to_dict() if hasattr(cust, "to_dict") else {}
                 if not country:
                     country = (((cust_d.get("address") or {}).get("country") or
                                 (cust_d.get("shipping") or {}).get("address", {}).get("country") or
                                 "")).upper()
+                country = _normalize_country(country)
                 meta = cust_d.get("metadata") or {}
                 cust_type = (meta.get("type") or meta.get("customer_type") or
                              meta.get("segment") or meta.get("industry") or
@@ -611,8 +639,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
 .analytics-grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.5rem}}
 .ctry-row{{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border2)}}
 .ctry-row:last-child{{border-bottom:none}}
-.ctry-flag{{font-size:20px;width:28px;text-align:center;flex-shrink:0}}
-.ctry-name{{font-size:13px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.ctry-name{{font-size:13px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:120px}}
 .ctry-bar-wrap{{width:90px;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden;flex-shrink:0}}
 .ctry-bar-fill{{height:100%;border-radius:3px;background:var(--gbar)}}
 .ctry-val{{font-size:12px;font-variant-numeric:tabular-nums;width:56px;text-align:right;flex-shrink:0}}
@@ -936,13 +963,15 @@ function switchTab(tab){{
 }}
 
 // ── Analytics rendering ───────────────────────────────────────────────────────
+const CTRY_NAMES={{"US":"United States","AU":"Australia","BR":"Brazil","ZA":"South Africa","GB":"United Kingdom","NL":"Netherlands","AR":"Argentina","MX":"Mexico","JP":"Japan","SG":"Singapore","DK":"Denmark","IT":"Italy","NZ":"New Zealand","CA":"Canada","DE":"Germany","FR":"France","ES":"Spain","PT":"Portugal","IL":"Israel","MA":"Morocco","BE":"Belgium","CZ":"Czech Republic","AT":"Austria","CH":"Switzerland","SE":"Sweden","NO":"Norway","FI":"Finland","PL":"Poland","CO":"Colombia","CL":"Chile","IN":"India","AE":"UAE","ID":"Indonesia","MY":"Malaysia","TH":"Thailand","PE":"Peru","UY":"Uruguay"}};
+function ctryName(code){{ return CTRY_NAMES[code]||(code||"Unknown"); }}
+
 function renderAnalytics(){{
-  // Aggregate by country (all non-cancelled customers)
   const all=D;
   const byCtry={{}};
   all.forEach(r=>{{
-    const c=r[6]||"";
-    const k=c||"Unknown";
+    const code=r[6]||"";
+    const k=code||"Unknown";
     const mrr=r[1]==="Active"?(r[2]==="Annual"?r[3]/12:r[3]):0;
     if(!byCtry[k]) byCtry[k]={{mrr:0,count:0,active:0}};
     byCtry[k].mrr+=mrr;
@@ -950,33 +979,34 @@ function renderAnalytics(){{
     if(r[1]==="Active") byCtry[k].active+=1;
   }});
 
-  const sorted=Object.entries(byCtry).sort((a,b)=>b[1].mrr-a[1].mrr);
-  const maxMrr=sorted.length?sorted[0][1].mrr||1:1;
+  const sorted=Object.entries(byCtry).sort((a,b)=>b[1].mrr-a[1].mrr||b[1].count-a[1].count);
+  const maxMrr=Math.max(...sorted.map(([,v])=>v.mrr))||1;
   const totalMrr=sorted.reduce((s,[,v])=>s+v.mrr,0);
+  const totalCust=all.length||1;
 
   // MRR by country
-  const mrrHtml=sorted.map(([ctry,v])=>{{
+  const mrrHtml=sorted.map(([code,v])=>{{
     const pct=Math.round((v.mrr/maxMrr)*100);
     const share=totalMrr>0?Math.round(v.mrr/totalMrr*100):0;
+    const mrrStr=v.mrr>0?fmtS(v.mrr)+"/mo":"—";
     return `<div class="ctry-row">
-      <span class="ctry-flag">${{flag(ctry)}}</span>
-      <span class="ctry-name">${{ctry==="Unknown"?"Unknown":ctry}}</span>
+      <span class="ctry-name">${{ctryName(code)}}</span>
       <div class="ctry-bar-wrap"><div class="ctry-bar-fill" style="width:${{pct}}%"></div></div>
-      <span class="ctry-val" style="color:var(--green);font-weight:500">${{fmtS(v.mrr)}}/mo</span>
-      <span class="ctry-count" style="color:var(--text3)">${{share}}%</span>
+      <span class="ctry-val" style="${{v.mrr>0?"color:var(--green);font-weight:500":"color:var(--text3)"}}">${{mrrStr}}</span>
+      <span class="ctry-count">${{share>0?share+"%":"—"}}</span>
     </div>`;
   }}).join("");
   document.getElementById("mrr-by-country").innerHTML=mrrHtml||"<div class='type-unknown'>No data</div>";
 
-  // Customers by country
-  const custHtml=sorted.map(([ctry,v])=>{{
-    const pct=Math.round((v.count/all.length)*100);
+  // Customers by country (sorted by count)
+  const sortedByCount=Object.entries(byCtry).sort((a,b)=>b[1].count-a[1].count);
+  const custHtml=sortedByCount.map(([code,v])=>{{
+    const pct=Math.round((v.count/totalCust)*100);
     return `<div class="ctry-row">
-      <span class="ctry-flag">${{flag(ctry)}}</span>
-      <span class="ctry-name">${{ctry==="Unknown"?"Unknown":ctry}}</span>
-      <div class="ctry-bar-wrap"><div class="ctry-bar-fill" style="width:${{Math.round(v.count/all.length*100)}}%;background:var(--bbar)"></div></div>
+      <span class="ctry-name">${{ctryName(code)}}</span>
+      <div class="ctry-bar-wrap"><div class="ctry-bar-fill" style="width:${{Math.round(v.count/totalCust*100)}}%;background:var(--bbar)"></div></div>
       <span class="ctry-val">${{v.count}} cust.</span>
-      <span class="ctry-count" style="color:var(--text3)">${{pct}}%</span>
+      <span class="ctry-count">${{pct}}%</span>
     </div>`;
   }}).join("");
   document.getElementById("cust-by-country").innerHTML=custHtml||"<div class='type-unknown'>No data</div>";
