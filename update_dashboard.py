@@ -197,7 +197,7 @@ def build_rows(subs):
         currency = (price.get("currency") or "usd").lower()
         rec      = (price.get("recurring") or {})
         interval = "Annual" if rec.get("interval") == "year" else "Monthly"
-        amount_usd = round(amount / 100, 2) if currency == "usd" else 0.0
+        amount_usd = round(_to_usd(amount, currency), 2)
 
         # Next invoice date
         next_inv = ""
@@ -775,14 +775,21 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
 
   <!-- Analytics page -->
   <div id="page-analytics" style="display:none">
-    <div class="analytics-grid">
-      <div class="card">
-        <div class="card-title" style="color:var(--text)">MRR by country</div>
-        <div id="mrr-by-country"><div class="type-unknown">Loading…</div></div>
-      </div>
-      <div class="card">
-        <div class="card-title" style="color:var(--text)">Customers by country</div>
-        <div id="cust-by-country"><div class="type-unknown">Loading…</div></div>
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="card-title" style="color:var(--text)">Revenue &amp; customers by country</div>
+      <div style="overflow-x:auto;border-radius:var(--r);border:0.5px solid var(--border2)">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:var(--bg2)">
+              <th style="text-align:left;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Country</th>
+              <th style="text-align:right;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Customers</th>
+              <th style="text-align:right;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Active</th>
+              <th style="text-align:left;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2);min-width:140px">MRR</th>
+              <th style="text-align:right;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Share</th>
+            </tr>
+          </thead>
+          <tbody id="country-table"></tbody>
+        </table>
       </div>
     </div>
     <div class="card">
@@ -996,20 +1003,27 @@ function renderAnalytics(){{
       <span class="ctry-count">${{share>0?share+"%":"—"}}</span>
     </div>`;
   }}).join("");
-  document.getElementById("mrr-by-country").innerHTML=mrrHtml||"<div class='type-unknown'>No data</div>";
-
-  // Customers by country (sorted by count)
-  const sortedByCount=Object.entries(byCtry).sort((a,b)=>b[1].count-a[1].count);
-  const custHtml=sortedByCount.map(([code,v])=>{{
-    const pct=Math.round((v.count/totalCust)*100);
-    return `<div class="ctry-row">
-      <span class="ctry-name">${{ctryName(code)}}</span>
-      <div class="ctry-bar-wrap"><div class="ctry-bar-fill" style="width:${{Math.round(v.count/totalCust*100)}}%;background:var(--bbar)"></div></div>
-      <span class="ctry-val">${{v.count}} cust.</span>
-      <span class="ctry-count">${{pct}}%</span>
-    </div>`;
+  const tableHtml=sorted.map(([code,v],idx)=>{{
+    const barW=totalMrr>0?Math.round((v.mrr/maxMrr)*100):0;
+    const share=totalMrr>0?((v.mrr/totalMrr)*100).toFixed(1):0;
+    const mrrStr=v.mrr>0?fmtS(v.mrr)+"/mo":"—";
+    const bg=idx%2===0?"":"background:var(--bg2)";
+    return `<tr style="border-bottom:0.5px solid var(--border2);${{bg}}">
+      <td style="padding:9px 14px;font-weight:500">${{ctryName(code)}}</td>
+      <td style="padding:9px 14px;text-align:right">${{v.count}}</td>
+      <td style="padding:9px 14px;text-align:right;color:var(--green)">${{v.active}}</td>
+      <td style="padding:9px 14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden;max-width:100px">
+            <div style="height:100%;width:${{barW}}%;background:var(--gbar);border-radius:3px"></div>
+          </div>
+          <span style="font-size:12px;font-variant-numeric:tabular-nums;color:${{v.mrr>0?"var(--green)":"var(--text3)"}};font-weight:${{v.mrr>0?500:400}}">${{mrrStr}}</span>
+        </div>
+      </td>
+      <td style="padding:9px 14px;text-align:right;color:var(--text3);font-size:12px">${{v.mrr>0?share+"%":"—"}}</td>
+    </tr>`;
   }}).join("");
-  document.getElementById("cust-by-country").innerHTML=custHtml||"<div class='type-unknown'>No data</div>";
+  document.getElementById("country-table").innerHTML=tableHtml||"<tr><td colspan='5' style='padding:2rem;text-align:center;color:var(--text3)'>No data</td></tr>";
 
   // Customer types
   const byType={{}};
@@ -1040,6 +1054,9 @@ if __name__ == "__main__":
     subs = fetch_all_subscriptions()
     print(f"  {len(subs)} subscriptions fetched")
 
+    print("Loading FX rates...")
+    _load_fx_rates()
+
     print("Building rows from Stripe data...")
     rows = build_rows(subs)
     print(f"  {len(rows)} unique customers")
@@ -1049,9 +1066,6 @@ if __name__ == "__main__":
     print("Computing subscription metrics...")
     metrics = compute_subscription_metrics(subs)
     print(f"  MRR: ${metrics['total_mrr']:,.0f} (monthly ${metrics['monthly_mrr']:,.0f} + annual equiv. ${metrics['annual_mrr']:,.0f})")
-
-    print("Loading FX rates...")
-    _load_fx_rates()
 
     print("Fetching today's invoices...")
     today_invoices = fetch_today_invoices(subs)
