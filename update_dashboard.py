@@ -425,11 +425,16 @@ def _fetch_month_collected(mi):
             for inv in page.data:
                 try:
                     d       = inv.to_dict()
+                    # Only count invoices with an actual charge (card payment).
+                    # Invoices paid via credit balance, manual marking, or bank
+                    # transfer have no charge object and should not be counted —
+                    # they do not appear in Stripe's charges/transactions export.
+                    if not d.get("charge"):
+                        continue
                     paid_at = (d.get("status_transitions") or {}).get("paid_at") or 0
                     if not paid_at:
                         continue
                     paid_dt = datetime.fromtimestamp(int(paid_at), tz=timezone.utc)
-                    # Only count if the payment happened during this month
                     if _month_index(paid_dt) != mi:
                         continue
                     amount = _to_usd(d.get("amount_paid", 0), d.get("currency", "usd"))
