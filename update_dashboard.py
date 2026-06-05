@@ -364,6 +364,28 @@ def compute_subscription_metrics(subs):
         1 for sub in subs
         if stripe_status_to_label(sub.status) == "Active"
     )
+    # MRR breakdown by customer type — computed here so interval+amount are handled
+    # correctly per-subscription (avoids mixed-interval bug in JS row aggregation)
+    mrr_by_type: dict = {}
+    for sub in subs:
+        if stripe_status_to_label(sub.status) != "Active":
+            continue
+        try:
+            sd = sub.to_dict()
+            cid = str(sd.get("customer") or "")
+            ctype = _HS_TYPE_BY_ID.get(cid, "") or "Unclassified"
+            for it in (sd.get("items", {}).get("data", []) or []):
+                p   = it.get("price", {}) or {}
+                amt = (p.get("unit_amount") or 0) * ((it.get("quantity") or 1))
+                cur = (p.get("currency") or "usd").lower()
+                itv = (p.get("recurring") or {}).get("interval", "month")
+                usd = _to_usd(amt, cur)
+                if not usd:
+                    continue
+                mrr_contrib = usd / 12 if itv == "year" else usd
+                mrr_by_type[ctype] = round(mrr_by_type.get(ctype, 0.0) + mrr_contrib, 2)
+        except Exception:
+            continue
     return {
         "monthly_mrr":   round(monthly_mrr, 2),
         "annual_arr":    round(annual_arr, 2),
@@ -372,6 +394,7 @@ def compute_subscription_metrics(subs):
         "monthly_count": monthly_count,
         "annual_count":  annual_count,
         "active_subs":   active_subs,
+        "mrr_by_type":   mrr_by_type,
     }
 
 
@@ -579,6 +602,8 @@ def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_in
     rows_js          = json.dumps(rows, ensure_ascii=False)
     totals_js        = json.dumps(totals)
     collected_js     = json.dumps(monthly_collected)
+    mrr_by_type_js   = json.dumps(metrics.get("mrr_by_type", {}), separators=(",",":"))
+    problem_tot_js   = json.dumps([round(x,2) for x in problem_tot], separators=(",",":"))
     metrics_js       = json.dumps(metrics)
     today_total      = sum(i["amount"] for i in today_invoices)
     today_count      = len(today_invoices)
@@ -851,23 +876,18 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
       <div class="kv"><span class="k">Active paying this month</span><span class="v" id="sel-active-count">—</span></div>
       <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
     </div>
-    <!-- At-risk progress card -->
+    <!-- At-risk bar chart card -->
     <div class="card">
-      <div class="card-title" style="color:var(--text)">Revenue at risk</div>
-      <div style="margin-bottom:1rem">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-          <span style="font-size:12px;color:var(--text3)">At risk</span>
-          <span style="font-size:20px;font-weight:600;color:var(--red)" id="risk-amt">—</span>
-        </div>
-        <div style="height:8px;background:var(--bg2);border-radius:4px;overflow:hidden">
-          <div id="risk-bar" style="height:100%;border-radius:4px;background:var(--red);transition:width .4s;width:0%"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;margin-top:4px">
-          <span style="font-size:11px;color:var(--text3)" id="risk-pct">—% of expected MRR</span>
-          <span style="font-size:11px;color:var(--text3)" id="risk-count">—</span>
-        </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+        <div class="card-title" style="color:var(--text);margin-bottom:0">Revenue at risk</div>
+        <span style="font-size:20px;font-weight:700;color:var(--red)" id="risk-amt">—</span>
       </div>
-      <div class="kv" style="border-top:0.5px solid var(--border2);padding-top:10px">
+      <div id="risk-bars" style="display:flex;align-items:flex-end;gap:3px;height:64px;margin-bottom:8px"></div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:10px">
+        <span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span>
+        <span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span>
+      </div>
+      <div class="kv" style="border-top:0.5px solid var(--border2);padding-top:8px">
         <span class="k">Past due</span><span class="v" id="risk-pastdue" style="color:var(--red)">—</span>
       </div>
       <div class="kv">
@@ -959,6 +979,8 @@ const MONTHS=["Jan 2026","Feb 2026","Mar 2026","Apr 2026","May 2026","Jun 2026",
 const MO_SHORT=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const D={rows_js}.filter(r=>r[1]!=="Cancelled");
 const COLLECTED={collected_js};
+const MRR_BY_TYPE={mrr_by_type_js};
+const PROBLEM_TOTALS={problem_tot_js};
 const BC={{"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"}};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{{style:"currency",currency:"USD",maximumFractionDigits:0}}).format(Math.abs(v));
 const fmtS=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
@@ -1019,23 +1041,29 @@ function updateSelCard(){{
   document.getElementById("sel-total-active").textContent=totalActive+" customers";
   document.getElementById("sel-expected").textContent=expected>0?fmt(expected):"—";
   document.getElementById("sel-active-count").textContent=activeCount+" customers";
-  document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
-  // At-risk card
-  const totalMrr=D.reduce((s,r)=>s+(r[8]||0)+(r[1]==="Past due"||r[1]==="Unpaid"?r[3]:0)*0,0)||1;
-  const allExpected=D.reduce((s,r)=>s+(r[2]==="Annual"?r[3]/12:r[3]),0)||1;
+  const riskForPeriod=mi>=0?PROBLEM_TOTALS[mi]:PROBLEM_TOTALS.reduce((s,v)=>s+v,0)/12;
+  document.getElementById("sel-problem").textContent=riskForPeriod>0?"-"+fmtS(riskForPeriod):problems.length+" accounts";
+  // At-risk bar chart — uses PROBLEM_TOTALS from Python (same source as projections)
   const pastDueRows=D.filter(r=>r[1]==="Past due");
   const unpaidRows=D.filter(r=>r[1]==="Unpaid");
   const pdAmt=pastDueRows.reduce((s,r)=>s+(r[2]==="Annual"?r[3]/12:r[3]),0);
   const unpAmt=unpaidRows.reduce((s,r)=>s+(r[2]==="Annual"?r[3]/12:r[3]),0);
-  const riskTotal=pdAmt+unpAmt;
-  const riskPct=allExpected>0?Math.min(99,Math.round(riskTotal/allExpected*100)):0;
+  // Current-month at-risk from PROBLEM_TOTALS (matches projection logic)
+  const riskCur=mi>=0?PROBLEM_TOTALS[mi]:PROBLEM_TOTALS.reduce((s,v)=>s+v,0)/12;
   if(document.getElementById("risk-amt")){{
-    document.getElementById("risk-amt").textContent=riskTotal>0?"-"+fmtS(riskTotal):"—";
-    document.getElementById("risk-bar").style.width=riskPct+"%";
-    document.getElementById("risk-pct").textContent=riskPct+"% of expected MRR";
-    document.getElementById("risk-count").textContent=(pastDueRows.length+unpaidRows.length)+" accounts";
-    document.getElementById("risk-pastdue").textContent=pdAmt>0?fmtS(pdAmt)+" · "+pastDueRows.length+" cust.":"0";
-    document.getElementById("risk-unpaid").textContent=unpAmt>0?fmtS(unpAmt)+" · "+unpaidRows.length+" cust.":"0";
+    document.getElementById("risk-amt").textContent=riskCur>0?"-"+fmtS(riskCur):"—";
+    // Draw monthly bar chart
+    const maxV=Math.max(...PROBLEM_TOTALS,1);
+    document.getElementById("risk-bars").innerHTML=PROBLEM_TOTALS.map((v,i)=>{{
+      const h=Math.round((v/maxV)*56)+4;
+      const isActive=i===mi;
+      const clr=isActive?"var(--red)":"rgba(220,38,38,0.3)";
+      const lbl=fmtS(v);
+      return `<div title="${{MO_SHORT[i]}}: ${{lbl}}" style="flex:1;height:${{h}}px;background:${{clr}};border-radius:3px 3px 0 0;cursor:default;position:relative;transition:all .2s">
+        ${{isActive?`<span style="position:absolute;bottom:calc(100% + 2px);left:50%;transform:translateX(-50%);font-size:9px;color:var(--red);white-space:nowrap">${{lbl}}</span>`:""}}</div>`;
+    }}).join("");
+    document.getElementById("risk-pastdue").textContent=pdAmt>0?fmtS(pdAmt)+" · "+pastDueRows.length+" cust.":"—";
+    document.getElementById("risk-unpaid").textContent=unpAmt>0?fmtS(unpAmt)+" · "+unpaidRows.length+" cust.":"—";
   }}
 }}
 
@@ -1317,18 +1345,17 @@ function renderAnalytics(){{
   const TC={{"Retailer":"#639922","Manufacturer":"#854F0B","Ecommerce":"#635BFF",
              "Distributor":"#A32D2D","Installer":"#185FA5","Unclassified":"#888780"}};
   const byType={{}};
-  // Use r[8] (active_usd) to match compute_subscription_metrics exactly:
-  // includes customers with any active sub regardless of overall status
-  D.filter(r=>(r[8]||0)>0).forEach(r=>{{
+  // Customer count by type — Active only
+  D.filter(r=>r[1]==="Active").forEach(r=>{{
     const t=(r[7]||"").trim()||"Unclassified";
-    const mrr=r[2]==="Annual"?(r[8]||r[3])/12:(r[8]||r[3]);
-    if(!byType[t])byType[t]={{n:0,mrr:0}};
+    if(!byType[t])byType[t]={{n:0}};
     byType[t].n++;
-    byType[t].mrr+=mrr;
   }});
   const typeSorted=Object.entries(byType).sort((a,b)=>b[1].n-a[1].n);
   const pieCount=typeSorted.map(([t,v])=>{{return{{l:t,v:v.n,c:TC[t]||"#888780"}}}});
-  const pieMrr=typeSorted.map(([t,v])=>{{return{{l:t,v:Math.round(v.mrr),c:TC[t]||"#888780"}}}});
+  // MRR by type — from Python (per-subscription, interval-correct)
+  const mrrEntries=Object.entries(MRR_BY_TYPE).sort((a,b)=>b[1]-a[1]);
+  const pieMrr=mrrEntries.map(([t,v])=>{{return{{l:t,v:Math.round(v),c:TC[t]||"#888780"}}}});
   _makePie("pie-count",pieCount,v=>v+" cust.");
   _makePie("pie-mrr",pieMrr,v=>"$"+v.toLocaleString()+"/mo");
 }}
