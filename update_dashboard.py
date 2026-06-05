@@ -260,6 +260,7 @@ def build_rows(subs):
                 "status":     label,
                 "interval":   interval,
                 "amount_usd": amount_usd,
+                "active_usd": amount_usd if label == "Active" else 0.0,
                 "proj":       proj,
                 "next_inv":   next_inv,
                 "country":    country,
@@ -273,21 +274,24 @@ def build_rows(subs):
             if priority.get(label, 0) > priority.get(ex["status"], 0):
                 ex["status"]   = label
                 ex["next_inv"] = next_inv
-            # Sum projections (customer may have multiple subs)
+            # Sum projections and amounts (customer may have multiple subs)
             ex["proj"]       = [round(a + b, 2) for a, b in zip(ex["proj"], proj)]
             ex["amount_usd"] = round(ex["amount_usd"] + amount_usd, 2)
+            if label == "Active":
+                ex["active_usd"] = round(ex.get("active_usd", 0.0) + amount_usd, 2)
 
     rows = []
     for info in customers.values():
         rows.append([
-            info["name"],              # 0
-            info["status"],            # 1
-            info["interval"],          # 2
-            info["amount_usd"],        # 3
-            info["proj"],              # 4
-            info["next_inv"],          # 5
-            info.get("country",""),    # 6
-            info.get("cust_type",""),  # 7
+            info["name"],               # 0
+            info["status"],             # 1
+            info["interval"],           # 2
+            info["amount_usd"],         # 3 total (all subs)
+            info["proj"],               # 4
+            info["next_inv"],           # 5
+            info.get("country",""),     # 6
+            info.get("cust_type",""),   # 7
+            info.get("active_usd",0.0), # 8 active-only amount (for MRR accuracy)
         ])
 
     rows.sort(key=lambda r: r[3], reverse=True)
@@ -817,7 +821,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     </div>
   </div>
 
-  <div class="row2" style="margin-bottom:1.5rem">
+  <div class="row2" style="margin-bottom:1.5rem;grid-template-columns:1fr 1fr 1fr">
     <!-- Expected vs Collected -->
     <div class="card">
       <div class="card-title" style="color:var(--text)" id="cmp-title">Expected vs Collected</div>
@@ -846,6 +850,29 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
       <div class="kv"><span class="k">Active customers</span><span class="v" id="sel-total-active" title="Unique customers with all-active status">—</span></div>
       <div class="kv"><span class="k">Active paying this month</span><span class="v" id="sel-active-count">—</span></div>
       <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
+    </div>
+    <!-- At-risk progress card -->
+    <div class="card">
+      <div class="card-title" style="color:var(--text)">Revenue at risk</div>
+      <div style="margin-bottom:1rem">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+          <span style="font-size:12px;color:var(--text3)">At risk</span>
+          <span style="font-size:20px;font-weight:600;color:var(--red)" id="risk-amt">—</span>
+        </div>
+        <div style="height:8px;background:var(--bg2);border-radius:4px;overflow:hidden">
+          <div id="risk-bar" style="height:100%;border-radius:4px;background:var(--red);transition:width .4s;width:0%"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px">
+          <span style="font-size:11px;color:var(--text3)" id="risk-pct">—% of expected MRR</span>
+          <span style="font-size:11px;color:var(--text3)" id="risk-count">—</span>
+        </div>
+      </div>
+      <div class="kv" style="border-top:0.5px solid var(--border2);padding-top:10px">
+        <span class="k">Past due</span><span class="v" id="risk-pastdue" style="color:var(--red)">—</span>
+      </div>
+      <div class="kv">
+        <span class="k">Unpaid</span><span class="v" id="risk-unpaid" style="color:var(--red)">—</span>
+      </div>
     </div>
   </div>
 
@@ -993,6 +1020,23 @@ function updateSelCard(){{
   document.getElementById("sel-expected").textContent=expected>0?fmt(expected):"—";
   document.getElementById("sel-active-count").textContent=activeCount+" customers";
   document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
+  // At-risk card
+  const totalMrr=D.reduce((s,r)=>s+(r[8]||0)+(r[1]==="Past due"||r[1]==="Unpaid"?r[3]:0)*0,0)||1;
+  const allExpected=D.reduce((s,r)=>s+(r[2]==="Annual"?r[3]/12:r[3]),0)||1;
+  const pastDueRows=D.filter(r=>r[1]==="Past due");
+  const unpaidRows=D.filter(r=>r[1]==="Unpaid");
+  const pdAmt=pastDueRows.reduce((s,r)=>s+(r[2]==="Annual"?r[3]/12:r[3]),0);
+  const unpAmt=unpaidRows.reduce((s,r)=>s+(r[2]==="Annual"?r[3]/12:r[3]),0);
+  const riskTotal=pdAmt+unpAmt;
+  const riskPct=allExpected>0?Math.min(99,Math.round(riskTotal/allExpected*100)):0;
+  if(document.getElementById("risk-amt")){{
+    document.getElementById("risk-amt").textContent=riskTotal>0?"-"+fmtS(riskTotal):"—";
+    document.getElementById("risk-bar").style.width=riskPct+"%";
+    document.getElementById("risk-pct").textContent=riskPct+"% of expected MRR";
+    document.getElementById("risk-count").textContent=(pastDueRows.length+unpaidRows.length)+" accounts";
+    document.getElementById("risk-pastdue").textContent=pdAmt>0?fmtS(pdAmt)+" · "+pastDueRows.length+" cust.":"0";
+    document.getElementById("risk-unpaid").textContent=unpAmt>0?fmtS(unpAmt)+" · "+unpaidRows.length+" cust.":"0";
+  }}
 }}
 
 const TODAY_MI=4; // May 2026 = index 4; update each new year
@@ -1273,9 +1317,11 @@ function renderAnalytics(){{
   const TC={{"Retailer":"#639922","Manufacturer":"#854F0B","Ecommerce":"#635BFF",
              "Distributor":"#A32D2D","Installer":"#185FA5","Unclassified":"#888780"}};
   const byType={{}};
-  D.filter(r=>r[1]==="Active").forEach(r=>{{
+  // Use r[8] (active_usd) to match compute_subscription_metrics exactly:
+  // includes customers with any active sub regardless of overall status
+  D.filter(r=>(r[8]||0)>0).forEach(r=>{{
     const t=(r[7]||"").trim()||"Unclassified";
-    const mrr=r[2]==="Annual"?r[3]/12:r[3];
+    const mrr=r[2]==="Annual"?(r[8]||r[3])/12:(r[8]||r[3]);
     if(!byType[t])byType[t]={{n:0,mrr:0}};
     byType[t].n++;
     byType[t].mrr+=mrr;
