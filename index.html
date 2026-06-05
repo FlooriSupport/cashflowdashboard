@@ -112,7 +112,16 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
 #ct-lbl{margin-left:auto;font-size:12px}
 thead th:hover{background:var(--bg3);color:var(--text)}
 thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
-@media(max-width:700px){.metrics{grid-template-columns:repeat(2,1fr)}.charts-row,.row2,.analytics-grid{grid-template-columns:1fr}}
+.month-strip{display:flex;align-items:center;gap:8px;background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:6px 8px;margin-bottom:1.5rem}
+.ms-arrow{background:none;border:0.5px solid var(--border);border-radius:var(--r);width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text2);font-size:16px;flex-shrink:0;transition:all .15s}
+.ms-arrow:hover{background:var(--bg2);color:var(--text)}
+.ms-pills{display:flex;flex:1;gap:2px}
+.ms-pill{flex:1;padding:8px 4px;border:none;border-radius:var(--r);cursor:pointer;font-size:13px;font-weight:500;color:var(--text3);background:transparent;transition:all .15s;white-space:nowrap}
+.ms-pill:hover{background:var(--bg2);color:var(--text)}
+.ms-pill.active{background:var(--green);color:#fff;font-weight:700}
+.ms-yr.active{background:var(--blue);color:#fff}
+.ms-yr{border-left:0.5px solid var(--border2);margin-left:4px;padding-left:8px}
+@media(max-width:700px){.metrics{grid-template-columns:repeat(2,1fr)}.row2,.analytics-grid{grid-template-columns:1fr}.ms-pill{font-size:11px;padding:6px 2px}}
 /* tabs */
 .tabs{display:flex;gap:2px;margin-bottom:1.5rem;background:var(--bg2);border-radius:var(--rl);padding:4px}
 .tab-btn{flex:1;padding:8px 16px;border:none;border-radius:var(--r);cursor:pointer;font-size:13px;font-weight:500;color:var(--text2);background:transparent;transition:all .15s}
@@ -139,23 +148,43 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: Jun 05, 2026 at 01:40 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: Jun 05, 2026 at 01:48 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
-      <button class="icon-btn" onclick="location.reload()" title="Reload page to see latest data">
+      <div class="tabs" style="margin-bottom:0">
+        <button class="tab-btn active" id="tab-overview" onclick="switchTab('overview')">Overview</button>
+        <button class="tab-btn" id="tab-analytics" onclick="switchTab('analytics')">Analytics</button>
+      </div>
+      <button class="icon-btn" onclick="location.reload()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.2"/><path d="M13.5 2.5v2.2H11.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Refresh
       </button>
-      <button class="icon-btn" id="export-btn" onclick="exportCurrentPage()" title="Export current page as CSV">
+      <button class="icon-btn" onclick="exportCurrentPage()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0-2.5-2.5M8 10l2.5-2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13h10" stroke-linecap="round"/></svg>
         Export CSV
       </button>
     </div>
   </div>
 
-  <div class="tabs">
-    <button class="tab-btn active" id="tab-overview" onclick="switchTab('overview')">Overview</button>
-    <button class="tab-btn" id="tab-analytics" onclick="switchTab('analytics')">Analytics</button>
+  <!-- Month pagination -->
+  <div class="month-strip">
+    <button class="ms-arrow" id="ms-prev" onclick="prevMonth()">&#8592;</button>
+    <div class="ms-pills">
+      <button class="ms-pill" id="mp0"  onclick="setMonth(0)">Jan</button>
+      <button class="ms-pill" id="mp1"  onclick="setMonth(1)">Feb</button>
+      <button class="ms-pill" id="mp2"  onclick="setMonth(2)">Mar</button>
+      <button class="ms-pill" id="mp3"  onclick="setMonth(3)">Apr</button>
+      <button class="ms-pill" id="mp4"  onclick="setMonth(4)">May</button>
+      <button class="ms-pill" id="mp5"  onclick="setMonth(5)">Jun</button>
+      <button class="ms-pill" id="mp6"  onclick="setMonth(6)">Jul</button>
+      <button class="ms-pill" id="mp7"  onclick="setMonth(7)">Aug</button>
+      <button class="ms-pill" id="mp8"  onclick="setMonth(8)">Sep</button>
+      <button class="ms-pill" id="mp9"  onclick="setMonth(9)">Oct</button>
+      <button class="ms-pill" id="mp10" onclick="setMonth(10)">Nov</button>
+      <button class="ms-pill" id="mp11" onclick="setMonth(11)">Dec</button>
+      <button class="ms-pill ms-yr"  id="mpyr" onclick="setMonth(-1)">Year</button>
+    </div>
+    <button class="ms-arrow" id="ms-next" onclick="nextMonth()">&#8594;</button>
   </div>
 
   <div id="page-overview">
@@ -182,22 +211,10 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
     </div>
   </div>
 
-  <div class="charts-row">
-    <!-- Card 1: Full year expected (clickable to select month) -->
+  <div class="row2" style="margin-bottom:1.5rem">
+    <!-- Expected vs Collected -->
     <div class="card">
-      <div class="card-title" style="color:var(--text)">Expected cashflow — Jan to Dec 2026 <span style="font-size:10px;font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0">(click month to filter)</span></div>
-      <div class="bchart" id="barchart"></div>
-      <div class="chart-legend">
-        <span><span class="dot" style="background:var(--gbar)"></span>Expected (active subs)</span>
-      </div>
-    </div>
-    <!-- Card 2: Expected vs Collected for selected month -->
-    <div class="card">
-      <div class="cmp-nav">
-        <button class="nav-btn" id="cmp-prev" onclick="prevMonth()">←</button>
-        <span class="cmp-mo" id="cmp-mo-label">—</span>
-        <button class="nav-btn" id="cmp-next" onclick="nextMonth()">→</button>
-      </div>
+      <div class="card-title" style="color:var(--text)" id="cmp-title">Expected vs Collected</div>
       <div class="cmp-bars">
         <div class="cmp-col">
           <div class="cmp-amt" id="cval-exp" style="color:var(--green)">—</div>
@@ -216,19 +233,18 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
       </div>
       <div class="cmp-diff" id="cmp-diff"></div>
     </div>
-  </div>
-
-  <div class="row2">
+    <!-- Period summary -->
     <div class="card">
       <div class="card-title" style="color:var(--text)" id="sel-title">Selected period</div>
       <div class="kv"><span class="k">Expected revenue</span><span class="v green" id="sel-expected">—</span></div>
       <div class="kv"><span class="k">Active paying customers</span><span class="v" id="sel-active-count">—</span></div>
       <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
     </div>
-    <div class="card">
-      <div class="card-title" style="color:var(--text)">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h · USD equiv.)</span></div>
-      <div class='empty'>No payments in the last 24h</div>
-    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem">
+    <div class="card-title" style="color:var(--text)">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h · USD equiv.)</span></div>
+    <div class='empty'>No payments in the last 24h</div>
   </div>
 
   <div class="tbl-section">
@@ -310,28 +326,27 @@ function byStatus(){
   return D.filter(r=>f==="all"||(f==="Active"&&r[1]==="Active")||(f==="problem"&&(r[1]==="Past due"||r[1]==="Unpaid")));
 }
 
-function prevMonth(){if(mi>0)setMonth(mi-1);else if(mi===-1)setMonth(11);}
-function nextMonth(){if(mi<11)setMonth(mi+1);else setMonth(-1);}
+function prevMonth(){if(mi===-1)setMonth(11);else if(mi>0)setMonth(mi-1);}
+function nextMonth(){if(mi===11)setMonth(-1);else if(mi<11)setMonth(mi+1);}
 
 function flag(c){if(!c||c.length!==2)return"";return String.fromCodePoint(c.charCodeAt(0)+127397)+String.fromCodePoint(c.charCodeAt(1)+127397);}
 
 function setMonth(i){
   mi=i;
   const isYr=mi===-1;
-  document.getElementById("cmp-mo-label").textContent=isYr?"Full Year 2026":MONTHS[mi];
-  document.getElementById("cmp-prev").disabled=false;
-  document.getElementById("cmp-next").disabled=false;
-  document.getElementById("sel-title").textContent=isYr?"Full Year 2026":MONTHS[mi];
-  document.getElementById("tbl-title").textContent=isYr?"All customers — Full Year 2026":"Customers with revenue in "+MONTHS[mi];
-  document.getElementById("tbl-hint").textContent=isYr?"Showing all customers across Jan–Dec 2026":"Only customers billed this month · Select 'Year' in the chart above to see all.";
+  const label=isYr?"Full Year 2026":MONTHS[mi];
+  for(let c=0;c<12;c++){const el=document.getElementById("mp"+c);if(el)el.classList.toggle("active",c===mi);}
+  const yr=document.getElementById("mpyr");if(yr)yr.classList.toggle("active",isYr);
+  if(document.getElementById("cmp-title")) document.getElementById("cmp-title").textContent="Expected vs Collected — "+label;
+  if(document.getElementById("sel-title")) document.getElementById("sel-title").textContent=label;
+  if(document.getElementById("tbl-title")) document.getElementById("tbl-title").textContent=isYr?"All customers":"Customers — "+label;
+  if(document.getElementById("tbl-hint")) document.getElementById("tbl-hint").textContent=isYr?"Showing all customers — Jan–Dec 2026":"Customers with expected revenue in "+label;
   document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
   updateAll();
 }
-
 function updateAll(){
   sf=document.getElementById("flt").value;
   updateSelCard();
-  renderExpectedChart();
   updateCmpCard();
   pg=1; _render();
 }
