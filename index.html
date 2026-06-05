@@ -148,7 +148,7 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: Jun 05, 2026 at 14:05 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: Jun 05, 2026 at 14:12 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <div class="tabs" style="margin-bottom:0">
@@ -378,7 +378,7 @@ function updateSelCard(){
   document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
 }
 
-const TODAY_MI=4; // May 2026 = index 4; update each new year
+const TODAY_MI=(function(){const n=new Date();if(n.getFullYear()===2026)return n.getMonth();return n.getFullYear()>2026?11:0;})();
 function expectedForMonth(i){
   // Past/current months: all subs (they were expected to bill then)
   // Future months: active only (what we can realistically expect)
