@@ -224,16 +224,12 @@ def build_rows(subs):
 
         items_data = sub_dict.get("items", {}).get("data", [])
         item = items_data[0] if items_data else {}
-        price    = item.get("price", {}) or {}
+        price = item.get("price", {}) or {}
+        amount   = (price.get("unit_amount") or 0)
         currency = (price.get("currency") or "usd").lower()
         rec      = (price.get("recurring") or {})
         interval = "Annual" if rec.get("interval") == "year" else "Monthly"
-        # Sum ALL items × quantity (handles multi-item subscriptions correctly)
-        total_cents = sum(
-            ((it.get("price") or {}).get("unit_amount") or 0) * ((it.get("quantity") or 1))
-            for it in (items_data or [item])
-        )
-        amount_usd = round(_to_usd(total_cents, currency), 2)
+        amount_usd = round(_to_usd(amount, currency), 2)
 
         # Currency-based country fallback (applied after currency is defined)
         if not country:
@@ -354,11 +350,6 @@ def compute_subscription_metrics(subs):
         except Exception:
             continue
 
-    # Count active subscriptions (matches Stripe's "Assinantes ativos")
-    active_subs = sum(
-        1 for sub in subs
-        if stripe_status_to_label(sub.status) == "Active"
-    )
     return {
         "monthly_mrr":   round(monthly_mrr, 2),
         "annual_arr":    round(annual_arr, 2),
@@ -366,7 +357,6 @@ def compute_subscription_metrics(subs):
         "total_mrr":     round(monthly_mrr + annual_arr / 12, 2),
         "monthly_count": monthly_count,
         "annual_count":  annual_count,
-        "active_subs":   active_subs,
     }
 
 
@@ -457,10 +447,7 @@ def _to_usd(amount_cents, currency):
     rate = _FX_RATES.get(cur, 0)
     if rate > 0:
         return round(amount / rate, 2)
-    # Unknown rate: log and return 0 (better than silently treating as USD)
-    if cur not in ("", "USD"):
-        print(f"  Warning: no FX rate for {cur}, skipping amount {amount:.2f}")
-    return 0.0
+    return round(amount, 2)  # fallback: treat as USD if rate unknown
 
 
 def _fetch_month_collected(mi):
@@ -486,13 +473,11 @@ def _fetch_month_collected(mi):
             for inv in page.data:
                 try:
                     d = inv.to_dict()
-                    # Only count invoices that triggered a real online payment
-                    # (payment_intent != null). This covers BOTH charge_automatically
-                    # and send_invoice paid by card, while excluding:
-                    # - Credit balance payments (payment_intent is null)
-                    # - "Mark as paid" manual entries (payment_intent is null)
-                    # This matches Stripe's Transactions export exactly.
-                    if not d.get("payment_intent"):
+                    # Only count auto-charged invoices (card payments).
+                    # "charge_automatically" = subscription charged to card on file.
+                    # "send_invoice" = manually sent invoices (may be paid via bank/manual).
+                    # This filter does not require Charges: Read permission.
+                    if d.get("collection_method") != "charge_automatically":
                         continue
                     paid_at = (d.get("status_transitions") or {}).get("paid_at") or 0
                     if not paid_at:
@@ -521,7 +506,7 @@ def fetch_monthly_collected():
     Current and future months are always re-fetched.
     """
     cache_file = "collected_cache.json"
-    CACHE_VER = "v3"  # v3: payment_intent filter replaces collection_method
+    CACHE_VER = "v2"  # bump when collection logic changes to force recalc
     try:
         with open(cache_file) as f:
             raw = json.load(f)
@@ -798,7 +783,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     <div class="mc">
       <div class="lbl">Total MRR</div>
       <div class="val" style="color:var(--green)">${metrics["total_mrr"]:,.0f}</div>
-      <div class="sub">{metrics["active_subs"]} active subscriptions</div>
+      <div class="sub">active USD · monthly + annual ÷ 12</div>
     </div>
     <div class="mc">
       <div class="lbl">Monthly revenue</div>
@@ -843,7 +828,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     <div class="card">
       <div class="card-title" style="color:var(--text)" id="sel-title">Selected period</div>
       <div class="kv"><span class="k">Expected revenue</span><span class="v green" id="sel-expected">—</span></div>
-      <div class="kv"><span class="k">Active customers</span><span class="v" id="sel-total-active" title="Unique customers with all-active status">—</span></div>
+      <div class="kv"><span class="k">Total active customers</span><span class="v" id="sel-total-active">—</span></div>
       <div class="kv"><span class="k">Active paying this month</span><span class="v" id="sel-active-count">—</span></div>
       <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
     </div>
@@ -1234,14 +1219,6 @@ if __name__ == "__main__":
 
     print("Loading FX rates...")
     _load_fx_rates()
-
-    print("Audit: subscription status breakdown:")
-    status_counts = {}
-    for s in subs:
-        label = stripe_status_to_label(s.status)
-        status_counts[label] = status_counts.get(label, 0) + 1
-    for k, v in sorted(status_counts.items()):
-        print(f"  {k}: {v}")
 
     print("Building rows from Stripe data...")
     rows = build_rows(subs)
