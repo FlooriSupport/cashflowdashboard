@@ -110,6 +110,8 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
 .pag button:disabled{opacity:.35;cursor:default}
 .pag button:not(:disabled):hover{background:var(--bg2)}
 #ct-lbl{margin-left:auto;font-size:12px}
+thead th:hover{background:var(--bg3);color:var(--text)}
+thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
 @media(max-width:700px){.metrics{grid-template-columns:repeat(2,1fr)}.charts-row,.row2,.analytics-grid{grid-template-columns:1fr}}
 /* tabs */
 .tabs{display:flex;gap:2px;margin-bottom:1.5rem;background:var(--bg2);border-radius:var(--rl);padding:4px}
@@ -137,7 +139,7 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: Jun 05, 2026 at 01:30 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: Jun 05, 2026 at 01:40 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="icon-btn" onclick="location.reload()" title="Reload page to see latest data">
@@ -239,27 +241,21 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
           <option value="Active">Active</option>
           <option value="problem">Problem accounts</option>
         </select>
-        <select id="sort-by" onchange="renderTable()" title="Sort order">
-          <option value="amount-desc">$ High → Low</option>
-          <option value="amount-asc">$ Low → High</option>
-          <option value="name-asc">Name A → Z</option>
-          <option value="name-desc">Name Z → A</option>
-          <option value="country-asc">Country A → Z</option>
-        </select>
+
       </div>
     </div>
     <p id="tbl-hint" style="font-size:12px;color:var(--text3);margin-bottom:10px"></p>
     <div class="tbl-wrap">
       <table>
-        <thead><tr>
-          <th style="width:28%">Customer</th>
-          <th style="width:9%">Country</th>
-          <th style="width:11%">Type</th>
-          <th style="width:11%">Status</th>
-          <th style="width:14%">Next invoice</th>
-          <th style="width:12%" class="r col-annual">Annual total</th>
-          <th style="width:12%" class="r">Base amount</th>
-          <th style="width:8%">Interval</th>
+        <thead><tr id="tbl-head">
+          <th style="width:28%;cursor:pointer;user-select:none" onclick="setSortCol(0)">Customer <span id="sh0"></span></th>
+          <th style="width:9%;cursor:pointer;user-select:none" onclick="setSortCol(6)">Country <span id="sh6"></span></th>
+          <th style="width:11%;cursor:pointer;user-select:none" onclick="setSortCol(7)">Type <span id="sh7"></span></th>
+          <th style="width:11%;cursor:pointer;user-select:none" onclick="setSortCol(1)">Status <span id="sh1"></span></th>
+          <th style="width:14%;cursor:pointer;user-select:none" onclick="setSortCol(5)">Next invoice <span id="sh5"></span></th>
+          <th style="width:12%;cursor:pointer;user-select:none" class="r col-annual" onclick="setSortCol(8)">Annual total <span id="sh8"></span></th>
+          <th style="width:12%;cursor:pointer;user-select:none" class="r" onclick="setSortCol(3)">Base amount <span id="sh3"></span></th>
+          <th style="width:8%;cursor:pointer;user-select:none" onclick="setSortCol(2)">Interval <span id="sh2"></span></th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
@@ -425,19 +421,34 @@ function updateCmpCard(){
   }
 }
 
+let sortCol=3,sortDir=-1; // default: base amount descending
+
+function annualVal(r){return r[2]==="Annual"?r[3]:r[3]*12;}
+
+function setSortCol(col){
+  if(sortCol===col){sortDir*=-1;}else{sortCol=col;sortDir=col===3||col===8?-1:1;}
+  // Update header indicators
+  [0,1,2,3,5,6,7,8].forEach(c=>{
+    const el=document.getElementById("sh"+c);
+    if(el) el.textContent=sortCol===c?(sortDir===1?" ↑":" ↓"):"";
+    const th=el&&el.parentElement;
+    if(th) th.style.color=sortCol===c?"var(--text)":"";
+  });
+  renderTable();
+}
+
 function getFiltered(){
   const q=document.getElementById("search").value.toLowerCase();
   const base=byStatus();
   const byM=mi>=0?base.filter(r=>r[4][mi]>0):base;
   const filtered=byM.filter(r=>!q||r[0].toLowerCase().includes(q));
-  const s=document.getElementById("sort-by")?document.getElementById("sort-by").value:"amount-desc";
   return filtered.slice().sort((a,b)=>{
-    if(s==="amount-desc") return b[3]-a[3];
-    if(s==="amount-asc")  return a[3]-b[3];
-    if(s==="name-asc")    return a[0].localeCompare(b[0]);
-    if(s==="name-desc")   return b[0].localeCompare(a[0]);
-    if(s==="country-asc") return (a[6]||"").localeCompare(b[6]||"");
-    return b[3]-a[3];
+    let va,vb;
+    if(sortCol===8){va=annualVal(a);vb=annualVal(b);}
+    else if(sortCol===3){va=a[3];vb=b[3];}
+    else{va=String(a[sortCol]||"").toLowerCase();vb=String(b[sortCol]||"").toLowerCase();
+      return sortDir*va.localeCompare(vb);}
+    return sortDir*(vb-va);
   });
 }
 
