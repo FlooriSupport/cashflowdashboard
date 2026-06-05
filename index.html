@@ -148,7 +148,7 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: Jun 05, 2026 at 16:55 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: Jun 05, 2026 at 17:03 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <div class="tabs" style="margin-bottom:0">
@@ -289,6 +289,17 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
 
   <!-- Analytics page -->
   <div id="page-analytics" style="display:none">
+    <div class="analytics-grid" style="margin-bottom:1.5rem">
+      <div class="card">
+        <div class="card-title" style="color:var(--text)">Customers by type</div>
+        <div id="pie-count" style="display:flex;flex-direction:column;align-items:center;gap:16px"></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="color:var(--text)">MRR by type</div>
+        <div id="pie-mrr" style="display:flex;flex-direction:column;align-items:center;gap:16px"></div>
+      </div>
+    </div>
+
     <div class="card" style="margin-bottom:1.5rem">
       <div class="card-title" style="color:var(--text)">Revenue &amp; customers by country</div>
       <div style="overflow-x:auto;border-radius:var(--r);border:0.5px solid var(--border2)">
@@ -564,6 +575,41 @@ function switchTab(tab){
 }
 
 // ── Analytics rendering ───────────────────────────────────────────────────────
+// ── Pie chart ────────────────────────────────────────────────────────────────
+function _makePie(containerId, data, fmtVal){
+  const el=document.getElementById(containerId);
+  if(!el)return;
+  const total=data.reduce((s,d)=>s+d.v,0);
+  if(!total){el.innerHTML='<span style="color:var(--text3);font-size:13px">No data</span>';return;}
+  const cx=90,cy=90,r=80,size=180;
+  let angle=-Math.PI/2;
+  let slices='';
+  data.forEach(d=>{
+    const pct=d.v/total;
+    const a=pct*2*Math.PI;
+    const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle);
+    const x2=cx+r*Math.cos(angle+a),y2=cy+r*Math.sin(angle+a);
+    const large=a>Math.PI?1:0;
+    if(pct>0.001){
+      slices+=`<path d="M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${large},1 ${x2.toFixed(2)},${y2.toFixed(2)} Z"
+        fill="${d.c}" stroke="var(--bg)" stroke-width="1.5">
+        <title>${d.l}: ${fmtVal(d.v)} (${(pct*100).toFixed(1)}%)</title></path>`;
+    }
+    angle+=a;
+  });
+  const legend=data.map(d=>{
+    const pct=(d.v/total*100).toFixed(1);
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:12px">
+      <span style="width:10px;height:10px;border-radius:2px;background:${d.c};flex-shrink:0"></span>
+      <span style="flex:1;color:var(--text2)">${d.l}</span>
+      <span style="color:var(--text);font-weight:500">${fmtVal(d.v)}</span>
+      <span style="color:var(--text3);min-width:38px;text-align:right">${pct}%</span>
+    </div>`;
+  }).join('');
+  el.innerHTML=`<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="overflow:visible">${slices}</svg>
+    <div style="width:100%;max-width:240px;display:flex;flex-direction:column;gap:6px">${legend}</div>`;
+}
+
 function renderAnalytics(){
   const all=D;
   const byCtry={};
@@ -616,6 +662,23 @@ function renderAnalytics(){
     </tr>`;
   }).join("");
   document.getElementById("country-table").innerHTML=tableHtml||"<tr><td colspan='5' style='padding:2rem;text-align:center;color:var(--text3)'>No data</td></tr>";
+
+  // ── Pie charts by customer type ───────────────────────────────────────────
+  const TC={"Retailer":"#639922","Manufacturer":"#854F0B","Ecommerce":"#635BFF",
+             "Distributor":"#A32D2D","Installer":"#185FA5","Unclassified":"#888780"};
+  const byType={};
+  D.forEach(r=>{
+    const t=(r[7]||"").trim()||"Unclassified";
+    const mrr=r[2]==="Annual"?r[3]/12:r[3];
+    if(!byType[t])byType[t]={n:0,mrr:0};
+    byType[t].n++;
+    byType[t].mrr+=mrr;
+  });
+  const typeSorted=Object.entries(byType).sort((a,b)=>b[1].n-a[1].n);
+  const pieCount=typeSorted.map(([t,v])=>{return{l:t,v:v.n,c:TC[t]||"#888780"}});
+  const pieMrr=typeSorted.map(([t,v])=>{return{l:t,v:Math.round(v.mrr),c:TC[t]||"#888780"}});
+  _makePie("pie-count",pieCount,v=>v+" cust.");
+  _makePie("pie-mrr",pieMrr,v=>"$"+v.toLocaleString()+"/mo");
 }
 </script>
 </body>
