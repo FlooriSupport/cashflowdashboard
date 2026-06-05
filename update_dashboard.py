@@ -484,49 +484,14 @@ def _to_usd(amount_cents, currency):
 
 def _fetch_month_collected(mi):
     """
-    Fetch total net USD collected for a single month index (0=Jan..11=Dec).
-    Uses BalanceTransaction (type=payment) filtered by `created` within the month,
-    summing the `net` field (after Stripe fees) — matches the Stripe dashboard's
-    "Net volume" exactly.
-    Falls back to Invoice amount_paid (gross) if BalanceTransaction access is unavailable.
+    Fetch total USD collected for a single month index (0=Jan..11=Dec).
+    Uses Invoice.list filtered by status_transitions.paid_at falling within the
+    target month — matches Stripe's "Gross volume" for the period.
+    Fetches invoices created up to 60 days before month start to catch invoices
+    created earlier but paid within this month.
+    Only counts invoices with a payment_intent (real card payments), excluding
+    credit-balance payments and manual "Mark as paid" entries.
     """
-    month_start = datetime(2026, mi + 1, 1, tzinfo=timezone.utc)
-    month_end   = datetime(2027, 1, 1, tzinfo=timezone.utc) if mi == 11 else datetime(2026, mi + 2, 1, tzinfo=timezone.utc)
-    total = 0.0
-    try:
-        params = {
-            "type":    "payment",
-            "created": {"gte": int(month_start.timestamp()), "lt": int(month_end.timestamp())},
-            "limit":   100,
-        }
-        while True:
-            page = _stripe_call(stripe.BalanceTransaction.list, **params)
-            for txn in page.data:
-                try:
-                    d = txn.to_dict() if hasattr(txn, "to_dict") else txn
-                    # net is already post-fee in the account's settlement currency
-                    net      = d.get("net", 0) or 0
-                    currency = (d.get("currency") or "usd").lower()
-                    amount   = _to_usd(net, currency)
-                    if amount > 0:
-                        total = round(total + amount, 2)
-                except Exception:
-                    continue
-            if not page.has_more:
-                break
-            params["starting_after"] = page.data[-1].id
-    except stripe.error.PermissionError:
-        # Fallback: balance transactions not accessible with this API key scope —
-        # revert to Invoice amount_paid (gross, before fees)
-        print(f"  Warning: BalanceTransaction access denied for month {mi+1} — falling back to Invoice amount_paid (gross)")
-        total = _fetch_month_collected_gross(mi)
-    except Exception as e:
-        print(f"  Warning fetching month {mi+1}: {e}")
-    return total
-
-
-def _fetch_month_collected_gross(mi):
-    """Fallback: collect gross amount_paid from invoices (before Stripe fees)."""
     from datetime import timedelta
     month_start = datetime(2026, mi + 1, 1, tzinfo=timezone.utc)
     month_end   = datetime(2027, 1, 1, tzinfo=timezone.utc) if mi == 11 else datetime(2026, mi + 2, 1, tzinfo=timezone.utc)
@@ -560,7 +525,7 @@ def _fetch_month_collected_gross(mi):
                 break
             params["starting_after"] = page.data[-1].id
     except Exception as e:
-        print(f"  Warning (gross fallback) fetching month {mi+1}: {e}")
+        print(f"  Warning fetching month {mi+1}: {e}")
     return total
 
 
