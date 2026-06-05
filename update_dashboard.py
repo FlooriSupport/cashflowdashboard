@@ -372,7 +372,14 @@ def compute_subscription_metrics(subs):
             continue
         try:
             sd = sub.to_dict()
-            cid = str(sd.get("customer") or "")
+            # customer may be an ID string or an expanded dict
+            cust_raw = sd.get("customer") or ""
+            if isinstance(cust_raw, dict):
+                cid = cust_raw.get("id", "")
+            elif hasattr(cust_raw, "id"):
+                cid = cust_raw.id
+            else:
+                cid = str(cust_raw)
             ctype = _HS_TYPE_BY_ID.get(cid, "") or "Unclassified"
             for it in (sd.get("items", {}).get("data", []) or []):
                 p   = it.get("price", {}) or {}
@@ -835,9 +842,9 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
       <div class="sub">{metrics["monthly_count"]} monthly subscribers</div>
     </div>
     <div class="mc">
-      <div class="lbl">Annual revenue</div>
-      <div class="val">${metrics["annual_arr"]:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
-      <div class="sub">{metrics["annual_count"]} annual · ${metrics["annual_mrr"]:,.0f}/mo equiv.</div>
+      <div class="lbl">ARR</div>
+      <div class="val">${metrics["total_mrr"]*12:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
+      <div class="sub">{metrics["annual_count"]} annual + {metrics["monthly_count"]} monthly plans</div>
     </div>
     <div class="mc">
       <div class="lbl">Recent collected</div>
@@ -1041,15 +1048,14 @@ function updateSelCard(){{
   document.getElementById("sel-total-active").textContent=totalActive+" customers";
   document.getElementById("sel-expected").textContent=expected>0?fmt(expected):"—";
   document.getElementById("sel-active-count").textContent=activeCount+" customers";
-  const riskForPeriod=mi>=0?PROBLEM_TOTALS[mi]:PROBLEM_TOTALS.reduce((s,v)=>s+v,0)/12;
-  document.getElementById("sel-problem").textContent=riskForPeriod>0?"-"+fmtS(riskForPeriod):problems.length+" accounts";
-  // At-risk bar chart — uses PROBLEM_TOTALS from Python (same source as projections)
+  // At-risk calculations
   const pastDueRows=D.filter(r=>r[1]==="Past due");
   const unpaidRows=D.filter(r=>r[1]==="Unpaid");
   const pdAmt=pastDueRows.reduce((s,r)=>s+(r[2]==="Annual"?r[3]/12:r[3]),0);
   const unpAmt=unpaidRows.reduce((s,r)=>s+(r[2]==="Annual"?r[3]/12:r[3]),0);
+  document.getElementById("sel-problem").textContent=(pdAmt+unpAmt)>0?"-"+fmtS(pdAmt+unpAmt):problems.length+" accounts";
   // Current-month at-risk from PROBLEM_TOTALS (matches projection logic)
-  const riskCur=mi>=0?PROBLEM_TOTALS[mi]:PROBLEM_TOTALS.reduce((s,v)=>s+v,0)/12;
+  const riskCur=pdAmt+unpAmt; // total monthly MRR at risk = matches breakdown
   if(document.getElementById("risk-amt")){{
     document.getElementById("risk-amt").textContent=riskCur>0?"-"+fmtS(riskCur):"—";
     // Draw monthly bar chart
