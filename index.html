@@ -137,7 +137,7 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: Jun 05, 2026 at 01:12 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: Jun 05, 2026 at 01:16 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="icon-btn" onclick="location.reload()" title="Reload page to see latest data">
@@ -286,15 +286,12 @@ tbody td{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:el
               <th style="text-align:right;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Active</th>
               <th style="text-align:left;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2);min-width:140px">MRR</th>
               <th style="text-align:right;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Share</th>
+              <th style="text-align:left;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Customer types</th>
             </tr>
           </thead>
           <tbody id="country-table"></tbody>
         </table>
       </div>
-    </div>
-    <div class="card">
-      <div class="card-title" style="color:var(--text)">Customer type distribution</div>
-      <div id="type-distribution"><div class="type-unknown">Loading…</div></div>
     </div>
   </div>
 
@@ -484,7 +481,7 @@ function exportAnalytics(){
   const byC={};D.forEach(r=>{const k=r[6]||'Unknown';const m=r[1]==='Active'?(r[2]==='Annual'?r[3]/12:r[3]):0;if(!byC[k])byC[k]={m:0,n:0,a:0};byC[k].m+=m;byC[k].n++;if(r[1]==='Active')byC[k].a++;});
   const tot=Object.values(byC).reduce((s,v)=>s+v.m,0);
   const rows=Object.entries(byC).sort((a,b)=>b[1].m-a[1].m).map(([c,v])=>[c,ctryName(c),v.n,v.a,v.m.toFixed(2),tot>0?((v.m/tot)*100).toFixed(1):'0.0']);
-  _dl(_csv(['Code','Country','Customers','Active','MRR/mo','Share%'],rows),'floori-analytics-by-country.csv');
+  _dl(_csv(['Code','Country','Customers','Active','MRR/mo','Share%','Top Type'],rows),'floori-analytics-by-country.csv');
 }
 
 setMonth(4); // default: May 2026
@@ -499,6 +496,9 @@ function switchTab(tab){
 }
 
 // ── Analytics rendering ───────────────────────────────────────────────────────
+const TYPE_COLORS={"Retailer":"#639922","Manufacturer":"#854F0B","Ecommerce":"#635BFF","Distributor":"#A32D2D","Installer":"#185FA5"};
+function typePill(t,n){const c=TYPE_COLORS[t]||"#888780";return`<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 7px;border-radius:20px;background:${c}22;color:${c};margin:1px">${t}<span style="opacity:.7">${n}</span></span>`;}
+
 function renderAnalytics(){
   const all=D;
   const byCtry={};
@@ -506,10 +506,12 @@ function renderAnalytics(){
     const code=r[6]||"";
     const k=code||"Unknown";
     const mrr=r[1]==="Active"?(r[2]==="Annual"?r[3]/12:r[3]):0;
-    if(!byCtry[k]) byCtry[k]={mrr:0,count:0,active:0};
+    const t=(r[7]||"").trim();
+    if(!byCtry[k]) byCtry[k]={mrr:0,count:0,active:0,types:{}};
     byCtry[k].mrr+=mrr;
     byCtry[k].count+=1;
     if(r[1]==="Active") byCtry[k].active+=1;
+    if(t) byCtry[k].types[t]=(byCtry[k].types[t]||0)+1;
   });
 
   const sorted=Object.entries(byCtry).sort((a,b)=>b[1].mrr-a[1].mrr||b[1].count-a[1].count);
@@ -547,29 +549,12 @@ function renderAnalytics(){
         </div>
       </td>
       <td style="padding:9px 14px;text-align:right;color:var(--text3);font-size:12px">${v.mrr>0?share+"%":"—"}</td>
+      <td style="padding:9px 14px">
+        ${Object.entries(v.types).sort((a,b)=>b[1]-a[1]).map(([t,n])=>typePill(t,n)).join("")||'<span style="color:var(--text3);font-size:12px">—</span>'}
+      </td>
     </tr>`;
   }).join("");
-  document.getElementById("country-table").innerHTML=tableHtml||"<tr><td colspan='5' style='padding:2rem;text-align:center;color:var(--text3)'>No data</td></tr>";
-
-  // Customer types
-  const byType={};
-  let hasType=false;
-  all.forEach(r=>{
-    const t=(r[7]||"").trim();
-    if(t){ hasType=true; byType[t]=(byType[t]||0)+1; }
-    else{ byType["Unclassified"]=(byType["Unclassified"]||0)+1; }
-  });
-  const typeColors={
-    "retailer":"#639922","supplier":"#185FA5","manufacturer":"#854F0B",
-    "ecommerce":"#635BFF","distributor":"#A32D2D","Unclassified":"#9e9d98"
-  };
-  const typeHtml=Object.entries(byType).sort((a,b)=>b[1]-a[1]).map(([t,n])=>{
-    const col=typeColors[t.toLowerCase()]||"#888780";
-    return `<span class="type-pill" style="background:${col}22;color:${col}">${t} (${n})</span>`;
-  }).join("");
-  document.getElementById("type-distribution").innerHTML=hasType
-    ? typeHtml
-    : `<p class="type-unknown">No customer type data found in Stripe metadata.<br>To enable this, add a <code>type</code> key to each customer's metadata in Stripe (e.g. retailer, supplier, manufacturer, ecommerce).</p>`;
+  document.getElementById("country-table").innerHTML=tableHtml||"<tr><td colspan='6' style='padding:2rem;text-align:center;color:var(--text3)'>No data</td></tr>";
 }
 </script>
 </body>
