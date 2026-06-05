@@ -1269,11 +1269,11 @@ function renderAnalytics(){{
   }}).join("");
   document.getElementById("country-table").innerHTML=tableHtml||"<tr><td colspan='5' style='padding:2rem;text-align:center;color:var(--text3)'>No data</td></tr>";
 
-  // ── Pie charts by customer type ───────────────────────────────────────────
+  // ── Pie charts by customer type — Active only (matches MRR card) ──────────
   const TC={{"Retailer":"#639922","Manufacturer":"#854F0B","Ecommerce":"#635BFF",
              "Distributor":"#A32D2D","Installer":"#185FA5","Unclassified":"#888780"}};
   const byType={{}};
-  D.forEach(r=>{{
+  D.filter(r=>r[1]==="Active").forEach(r=>{{
     const t=(r[7]||"").trim()||"Unclassified";
     const mrr=r[2]==="Annual"?r[3]/12:r[3];
     if(!byType[t])byType[t]={{n:0,mrr:0}};
