@@ -484,14 +484,52 @@ def _to_usd(amount_cents, currency):
 
 def _fetch_month_collected(mi):
     """
-    Fetch total USD collected for a single month index (0=Jan..11=Dec).
-    Filters by status_transitions.paid_at (when actually paid), NOT by invoice created date.
-    Fetches a 60-day window before the month start to catch invoices created earlier but paid this month.
+    Fetch total net USD collected for a single month index (0=Jan..11=Dec).
+    Uses BalanceTransaction (type=payment) filtered by `created` within the month,
+    summing the `net` field (after Stripe fees) — matches the Stripe dashboard's
+    "Net volume" exactly.
+    Falls back to Invoice amount_paid (gross) if BalanceTransaction access is unavailable.
     """
+    month_start = datetime(2026, mi + 1, 1, tzinfo=timezone.utc)
+    month_end   = datetime(2027, 1, 1, tzinfo=timezone.utc) if mi == 11 else datetime(2026, mi + 2, 1, tzinfo=timezone.utc)
+    total = 0.0
+    try:
+        params = {
+            "type":    "payment",
+            "created": {"gte": int(month_start.timestamp()), "lt": int(month_end.timestamp())},
+            "limit":   100,
+        }
+        while True:
+            page = _stripe_call(stripe.BalanceTransaction.list, **params)
+            for txn in page.data:
+                try:
+                    d = txn.to_dict() if hasattr(txn, "to_dict") else txn
+                    # net is already post-fee in the account's settlement currency
+                    net      = d.get("net", 0) or 0
+                    currency = (d.get("currency") or "usd").lower()
+                    amount   = _to_usd(net, currency)
+                    if amount > 0:
+                        total = round(total + amount, 2)
+                except Exception:
+                    continue
+            if not page.has_more:
+                break
+            params["starting_after"] = page.data[-1].id
+    except stripe.error.PermissionError:
+        # Fallback: balance transactions not accessible with this API key scope —
+        # revert to Invoice amount_paid (gross, before fees)
+        print(f"  Warning: BalanceTransaction access denied for month {mi+1} — falling back to Invoice amount_paid (gross)")
+        total = _fetch_month_collected_gross(mi)
+    except Exception as e:
+        print(f"  Warning fetching month {mi+1}: {e}")
+    return total
+
+
+def _fetch_month_collected_gross(mi):
+    """Fallback: collect gross amount_paid from invoices (before Stripe fees)."""
     from datetime import timedelta
     month_start = datetime(2026, mi + 1, 1, tzinfo=timezone.utc)
     month_end   = datetime(2027, 1, 1, tzinfo=timezone.utc) if mi == 11 else datetime(2026, mi + 2, 1, tzinfo=timezone.utc)
-    # Go back 60 days to catch invoices created before the month but paid during it
     fetch_from  = month_start - timedelta(days=60)
     total = 0.0
     try:
@@ -505,12 +543,6 @@ def _fetch_month_collected(mi):
             for inv in page.data:
                 try:
                     d = inv.to_dict()
-                    # Only count invoices that triggered a real online payment
-                    # (payment_intent != null). This covers BOTH charge_automatically
-                    # and send_invoice paid by card, while excluding:
-                    # - Credit balance payments (payment_intent is null)
-                    # - "Mark as paid" manual entries (payment_intent is null)
-                    # This matches Stripe's Transactions export exactly.
                     if not d.get("payment_intent"):
                         continue
                     paid_at = (d.get("status_transitions") or {}).get("paid_at") or 0
@@ -528,7 +560,7 @@ def _fetch_month_collected(mi):
                 break
             params["starting_after"] = page.data[-1].id
     except Exception as e:
-        print(f"  Warning fetching month {mi+1}: {e}")
+        print(f"  Warning (gross fallback) fetching month {mi+1}: {e}")
     return total
 
 
@@ -1003,7 +1035,7 @@ function updateSelCard(){{
   document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
 }}
 
-const TODAY_MI=4; // May 2026 = index 4; update each new year
+const TODAY_MI=(function(){{const n=new Date();if(n.getFullYear()===2026)return n.getMonth();return n.getFullYear()>2026?11:0;}})();
 function expectedForMonth(i){{
   // Past/current months: all subs (they were expected to bill then)
   // Future months: active only (what we can realistically expect)
