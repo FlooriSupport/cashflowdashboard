@@ -834,7 +834,6 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
         <select id="flt" onchange="updateAll()">
           <option value="all">All</option>
           <option value="Active">Active</option>
-          <option value="billing">Billing this month</option>
           <option value="problem">Problem accounts</option>
         </select>
 
@@ -907,9 +906,7 @@ function byStatus(){{
     if(f==="all") return true;
     if(f==="Active") return r[1]==="Active";
     if(f==="problem") return r[1]==="Past due"||r[1]==="Unpaid";
-    if(f==="billing") return mi>=0
-      ? r[2]==="Annual"&&r[4][mi]>0          // annual renewals in this month
-      : r[4].some(v=>v>0);                   // year: anyone with any revenue
+
     return true;
   }});
 }}
@@ -1040,10 +1037,34 @@ function setSortCol(col){{
   renderTable();
 }}
 
+// Parse "Jun 15, 2026" → month index 0-11
+function invMonth(dateStr){{
+  try{{const d=new Date(dateStr);if(isNaN(d))return -1;
+    if(d.getFullYear()===2026)return d.getMonth();
+    if(d.getFullYear()===2027)return 12; // next year, outside window
+    return -1;}}catch(e){{return -1;}}
+}}
+
 function getFiltered(){{
   const q=document.getElementById("search").value.toLowerCase();
   const base=byStatus();
-  const byM=mi>=0?base.filter(r=>r[4][mi]>0):base;
+  let byM;
+  if(mi>=0){{
+    // Month view: show customers whose next invoice falls in this month
+    // This ensures each month shows a distinct, relevant set of customers
+    byM=base.filter(r=>{{
+      const nim=invMonth(r[5]);
+      if(nim===mi) return true; // next invoice is this month ✓
+      // Also include annual subs whose renewal is this month (may have already renewed)
+      if(r[2]==="Annual"&&r[4][mi]>0) return true;
+      return false;
+    }});
+    // If no matches (e.g. past month where all next_inv have moved forward),
+    // fall back to projection-based filter
+    if(byM.length===0) byM=base.filter(r=>r[4][mi]>0);
+  }}else{{
+    byM=base; // Year: show all
+  }}
   const filtered=byM.filter(r=>!q||r[0].toLowerCase().includes(q));
   return filtered.slice().sort((a,b)=>{{
     let va,vb;
