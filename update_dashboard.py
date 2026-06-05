@@ -309,7 +309,13 @@ def compute_totals(rows):
 
 
 def compute_subscription_metrics(subs):
-    """MRR/ARR from active USD subscriptions."""
+    """
+    MRR/ARR from active subscriptions — matches Stripe's own MRR calculation:
+    - Includes ALL currencies (converted to USD via FX rates)
+    - Sums ALL items in each subscription
+    - Multiplies by quantity
+    - Annual subscriptions divided by 12 for MRR equivalent
+    """
     monthly_mrr = 0.0
     annual_arr  = 0.0
     monthly_count = 0
@@ -323,18 +329,24 @@ def compute_subscription_metrics(subs):
             items = sub_dict.get("items", {}).get("data", [])
             if not items:
                 continue
-            price    = items[0].get("price", {}) or {}
-            amount   = price.get("unit_amount", 0) or 0
-            currency = (price.get("currency", "usd") or "usd").lower()
-            interval = (price.get("recurring", {}) or {}).get("interval", "month")
-            if currency != "usd" or not amount:
-                continue
-            if interval == "year":
-                annual_arr   += amount / 100
-                annual_count += 1
-            else:
-                monthly_mrr   += amount / 100
-                monthly_count += 1
+            for item in items:
+                price    = item.get("price", {}) or {}
+                amount   = price.get("unit_amount", 0) or 0
+                currency = (price.get("currency", "usd") or "usd").lower()
+                interval = (price.get("recurring", {}) or {}).get("interval", "month")
+                quantity = item.get("quantity", 1) or 1
+                if not amount:
+                    continue
+                # Convert to USD — includes BRL, AUD, EUR, GBP, etc.
+                amount_usd = _to_usd(amount * quantity, currency)
+                if not amount_usd:
+                    continue
+                if interval == "year":
+                    annual_arr   += amount_usd / 100
+                    annual_count += 1
+                else:
+                    monthly_mrr   += amount_usd / 100
+                    monthly_count += 1
         except Exception:
             continue
 
@@ -816,7 +828,8 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     <div class="card">
       <div class="card-title" style="color:var(--text)" id="sel-title">Selected period</div>
       <div class="kv"><span class="k">Expected revenue</span><span class="v green" id="sel-expected">—</span></div>
-      <div class="kv"><span class="k">Active paying customers</span><span class="v" id="sel-active-count">—</span></div>
+      <div class="kv"><span class="k">Total active customers</span><span class="v" id="sel-total-active">—</span></div>
+      <div class="kv"><span class="k">Active paying this month</span><span class="v" id="sel-active-count">—</span></div>
       <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
     </div>
   </div>
@@ -949,6 +962,8 @@ function updateSelCard(){{
     activeCount=D.filter(r=>r[1]==="Active"&&r[4][mi]>0).length;
     problemAmt=problems.reduce((s,r)=>s+r[4][mi],0);
   }}
+  const totalActive=D.filter(r=>r[1]==="Active").length;
+  document.getElementById("sel-total-active").textContent=totalActive+" customers";
   document.getElementById("sel-expected").textContent=expected>0?fmt(expected):"—";
   document.getElementById("sel-active-count").textContent=activeCount+" customers";
   document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
