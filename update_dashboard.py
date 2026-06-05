@@ -834,6 +834,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
         <select id="flt" onchange="updateAll()">
           <option value="all">All</option>
           <option value="Active">Active</option>
+          <option value="billing">Billing this month</option>
           <option value="problem">Problem accounts</option>
         </select>
 
@@ -902,7 +903,15 @@ const PS=15;
 
 function byStatus(){{
   const f=sf;
-  return D.filter(r=>f==="all"||(f==="Active"&&r[1]==="Active")||(f==="problem"&&(r[1]==="Past due"||r[1]==="Unpaid")));
+  return D.filter(r=>{{
+    if(f==="all") return true;
+    if(f==="Active") return r[1]==="Active";
+    if(f==="problem") return r[1]==="Past due"||r[1]==="Unpaid";
+    if(f==="billing") return mi>=0
+      ? r[2]==="Annual"&&r[4][mi]>0          // annual renewals in this month
+      : r[4].some(v=>v>0);                   // year: anyone with any revenue
+    return true;
+  }});
 }}
 
 function prevMonth(){{if(mi===-1)setMonth(11);else if(mi>0)setMonth(mi-1);}}
@@ -1094,7 +1103,11 @@ function exportAnalytics(){{
   _dl(_csv(['Code','Country','Customers','Active','MRR/mo','Share%','Top Type'],rows),'floori-analytics-by-country.csv');
 }}
 
-setMonth(4); // default: May 2026
+(function(){{
+  const now=new Date();
+  const mi=now.getFullYear()===2026?now.getMonth():(now.getFullYear()>2026?11:0);
+  setMonth(mi);
+}})();
 
 // ── Tab navigation ────────────────────────────────────────────────────────────
 function switchTab(tab){{
