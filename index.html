@@ -148,7 +148,7 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: Jun 05, 2026 at 12:02 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: Jun 05, 2026 at 12:24 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <div class="tabs" style="margin-bottom:0">
@@ -191,18 +191,18 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
   <div class="metrics">
     <div class="mc">
       <div class="lbl">Total MRR</div>
-      <div class="val" style="color:var(--green)">$25,899</div>
+      <div class="val" style="color:var(--green)">$332</div>
       <div class="sub">active USD · monthly + annual ÷ 12</div>
     </div>
     <div class="mc">
       <div class="lbl">Monthly revenue</div>
-      <div class="val">$9,459<span style="font-size:13px;font-weight:400;color:var(--text3)">/mo</span></div>
-      <div class="sub">34 monthly subscribers</div>
+      <div class="val">$129<span style="font-size:13px;font-weight:400;color:var(--text3)">/mo</span></div>
+      <div class="sub">41 monthly subscribers</div>
     </div>
     <div class="mc">
       <div class="lbl">Annual revenue</div>
-      <div class="val">$197,276<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
-      <div class="sub">70 annual · $16,440/mo equiv.</div>
+      <div class="val">$2,429<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
+      <div class="sub">88 annual · $202/mo equiv.</div>
     </div>
     <div class="mc">
       <div class="lbl">Recent collected</div>
@@ -237,7 +237,8 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
     <div class="card">
       <div class="card-title" style="color:var(--text)" id="sel-title">Selected period</div>
       <div class="kv"><span class="k">Expected revenue</span><span class="v green" id="sel-expected">—</span></div>
-      <div class="kv"><span class="k">Active paying customers</span><span class="v" id="sel-active-count">—</span></div>
+      <div class="kv"><span class="k">Total active customers</span><span class="v" id="sel-total-active">—</span></div>
+      <div class="kv"><span class="k">Active paying this month</span><span class="v" id="sel-active-count">—</span></div>
       <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
     </div>
   </div>
@@ -370,6 +371,8 @@ function updateSelCard(){
     activeCount=D.filter(r=>r[1]==="Active"&&r[4][mi]>0).length;
     problemAmt=problems.reduce((s,r)=>s+r[4][mi],0);
   }
+  const totalActive=D.filter(r=>r[1]==="Active").length;
+  document.getElementById("sel-total-active").textContent=totalActive+" customers";
   document.getElementById("sel-expected").textContent=expected>0?fmt(expected):"—";
   document.getElementById("sel-active-count").textContent=activeCount+" customers";
   document.getElementById("sel-problem").textContent=problemAmt>0?"-"+fmtS(problemAmt):problems.length+" accounts";
