@@ -143,6 +143,17 @@ def _normalize_country(raw: str) -> str:
     return _COUNTRY_NORM.get(up, up[:2] if len(up) >= 2 else up)
 
 
+# ── Currency → ISO country fallback (when address.country is blank) ──────────
+_CURRENCY_COUNTRY = {
+    "brl": "BR", "aud": "AU", "gbp": "GB", "jpy": "JP",
+    "mxn": "MX", "cad": "CA", "nzd": "NZ", "zar": "ZA",
+    "ars": "AR", "sgd": "SG", "dkk": "DK", "nok": "NO",
+    "sek": "SE", "chf": "CH", "pln": "PL", "czk": "CZ",
+    "ils": "IL", "mad": "MA", "idr": "ID", "myr": "MY",
+    "thb": "TH", "cop": "CO", "clp": "CL", "inr": "IN",
+    "aed": "AE", "usd": "US",
+}
+
 # ── HubSpot customer type mapping (generated from HubSpot companies export) ──
 # Source: CompanyType field matched via Stripe Customer ID and email
 # Retailer includes: Retailer, Installer, Homecenter, Interior Designer
@@ -195,6 +206,16 @@ def build_rows(subs):
                                 (cust_d.get("shipping") or {}).get("address", {}).get("country") or
                                 "")).upper()
                 country = _normalize_country(country)
+            except Exception:
+                country = ""
+            # Currency-based country fallback when address is blank
+            if not country:
+                try:
+                    country = _CURRENCY_COUNTRY.get(currency.lower(), "")
+                except Exception:
+                    pass
+            try:
+                pass  # dummy to allow the next except to close
                 meta = cust_d.get("metadata") or {}
                 meta_type = (meta.get("type") or meta.get("customer_type") or
                              meta.get("segment") or meta.get("industry") or
@@ -818,7 +839,8 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
         <thead><tr>
           <th style="width:28%">Customer</th>
           <th style="width:9%">Country</th>
-          <th style="width:12%">Status</th>
+          <th style="width:11%">Type</th>
+          <th style="width:11%">Status</th>
           <th style="width:14%">Next invoice</th>
           <th style="width:12%" class="r col-annual">Annual total</th>
           <th style="width:12%" class="r">Base amount</th>
@@ -850,7 +872,7 @@ tbody td{{padding:9px 12px;vertical-align:middle;overflow:hidden;text-overflow:e
               <th style="text-align:right;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Active</th>
               <th style="text-align:left;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2);min-width:140px">MRR</th>
               <th style="text-align:right;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Share</th>
-              <th style="text-align:left;padding:8px 14px;font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;border-bottom:0.5px solid var(--border2)">Customer types</th>
+
             </tr>
           </thead>
           <tbody id="country-table"></tbody>
@@ -1019,6 +1041,7 @@ function _render(){{
     return `<tr>
       <td style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{r[0]}}</td>
       <td style="font-size:16px;text-align:center" title="${{ctry}}">${{flag(ctry)}}</td>
+      <td>${{r[7]?typePill(r[7],""): '<span style="color:var(--text3);font-size:11px">—</span>'}}</td>
       <td><span class="badge ${{BC[r[1]]||"b-unpaid"}}">${{r[1]}}</span></td>
       <td style="font-size:12px;color:${{prob?"var(--red)":"var(--text2)"}};font-weight:${{prob?500:400}}">${{r[5]||"—"}}</td>
       <td class="r col-annual" style="color:var(--text2)">${{annualTotal>0?fmt(annualTotal):"—"}}</td>
@@ -1061,7 +1084,7 @@ function switchTab(tab){{
 
 // ── Analytics rendering ───────────────────────────────────────────────────────
 const TYPE_COLORS={{"Retailer":"#639922","Manufacturer":"#854F0B","Ecommerce":"#635BFF","Distributor":"#A32D2D","Installer":"#185FA5"}};
-function typePill(t,n){{const c=TYPE_COLORS[t]||"#888780";return`<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 7px;border-radius:20px;background:${{c}}22;color:${{c}};margin:1px">${{t}}<span style="opacity:.7">${{n}}</span></span>`;}}
+function typePill(t,n){{const c=TYPE_COLORS[t]||"#888780";return`<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 7px;border-radius:20px;background:${{c}}22;color:${{c}}">${{t}}${{n?'<span style="opacity:.7">'+n+'</span>':''}}</span>`;}}
 
 function renderAnalytics(){{
   const all=D;
@@ -1071,11 +1094,10 @@ function renderAnalytics(){{
     const k=code||"Unknown";
     const mrr=r[1]==="Active"?(r[2]==="Annual"?r[3]/12:r[3]):0;
     const t=(r[7]||"").trim();
-    if(!byCtry[k]) byCtry[k]={{mrr:0,count:0,active:0,types:{{}}}};
+    if(!byCtry[k]) byCtry[k]={{mrr:0,count:0,active:0}};
     byCtry[k].mrr+=mrr;
     byCtry[k].count+=1;
     if(r[1]==="Active") byCtry[k].active+=1;
-    if(t) byCtry[k].types[t]=(byCtry[k].types[t]||0)+1;
   }});
 
   const sorted=Object.entries(byCtry).sort((a,b)=>b[1].mrr-a[1].mrr||b[1].count-a[1].count);
@@ -1113,12 +1135,9 @@ function renderAnalytics(){{
         </div>
       </td>
       <td style="padding:9px 14px;text-align:right;color:var(--text3);font-size:12px">${{v.mrr>0?share+"%":"—"}}</td>
-      <td style="padding:9px 14px">
-        ${{Object.entries(v.types).sort((a,b)=>b[1]-a[1]).map(([t,n])=>typePill(t,n)).join("")||'<span style="color:var(--text3);font-size:12px">—</span>'}}
-      </td>
     </tr>`;
   }}).join("");
-  document.getElementById("country-table").innerHTML=tableHtml||"<tr><td colspan='6' style='padding:2rem;text-align:center;color:var(--text3)'>No data</td></tr>";
+  document.getElementById("country-table").innerHTML=tableHtml||"<tr><td colspan='5' style='padding:2rem;text-align:center;color:var(--text3)'>No data</td></tr>";
 }}
 </script>
 </body>
