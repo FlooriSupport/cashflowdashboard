@@ -202,27 +202,17 @@ def build_rows(subs):
                     country = _normalize_country((getattr(addr, "country", None) or ""))
                 cust_d = cust.to_dict() if hasattr(cust, "to_dict") else {}
                 if not country:
-                    country = (((cust_d.get("address") or {}).get("country") or
-                                (cust_d.get("shipping") or {}).get("address", {}).get("country") or
-                                "")).upper()
-                country = _normalize_country(country)
-            except Exception:
-                country = ""
-            # Currency-based country fallback when address is blank
-            if not country:
-                try:
-                    country = _CURRENCY_COUNTRY.get(currency.lower(), "")
-                except Exception:
-                    pass
-            try:
-                pass  # dummy to allow the next except to close
+                    country = _normalize_country(
+                        (cust_d.get("address") or {}).get("country") or
+                        (cust_d.get("shipping") or {}).get("address", {}).get("country") or ""
+                    )
                 meta = cust_d.get("metadata") or {}
                 meta_type = (meta.get("type") or meta.get("customer_type") or
                              meta.get("segment") or meta.get("industry") or
                              meta.get("category") or "").strip()
                 cust_type = _resolve_customer_type(cust_id, email, meta_type)
             except Exception:
-                country = ""
+                country = country or ""
 
         display = name or email or cust_id
         label   = stripe_status_to_label(sub.status)
@@ -240,6 +230,10 @@ def build_rows(subs):
         rec      = (price.get("recurring") or {})
         interval = "Annual" if rec.get("interval") == "year" else "Monthly"
         amount_usd = round(_to_usd(amount, currency), 2)
+
+        # Currency-based country fallback (applied after currency is defined)
+        if not country:
+            country = _CURRENCY_COUNTRY.get(currency, "")
 
         # Next invoice date
         next_inv = ""
