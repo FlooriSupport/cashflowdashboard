@@ -1022,6 +1022,9 @@ function getFiltered(){{
 
 function renderTable(){{pg=1;_render();}}
 function go(d){{const tp=Math.ceil(getFiltered().length/PS);pg=Math.max(1,Math.min(tp,pg+d));_render();}}
+const TYPE_COLORS={{"Retailer":"#639922","Manufacturer":"#854F0B","Ecommerce":"#635BFF","Distributor":"#A32D2D","Installer":"#185FA5"}};
+function typePill(t,n){{const c=TYPE_COLORS[t]||"#888780";return`<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 7px;border-radius:20px;background:${{c}}22;color:${{c}}">${{t}}${{n?'<span style="opacity:.7">'+n+'</span>':''}}</span>`;}}
+
 function _render(){{
   const f=getFiltered(),tp=Math.max(1,Math.ceil(f.length/PS)),rows=f.slice((pg-1)*PS,pg*PS);
   document.getElementById("pg-info").textContent=`Page ${{pg}} of ${{tp}}`;
@@ -1077,9 +1080,6 @@ function switchTab(tab){{
 }}
 
 // ── Analytics rendering ───────────────────────────────────────────────────────
-const TYPE_COLORS={{"Retailer":"#639922","Manufacturer":"#854F0B","Ecommerce":"#635BFF","Distributor":"#A32D2D","Installer":"#185FA5"}};
-function typePill(t,n){{const c=TYPE_COLORS[t]||"#888780";return`<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 7px;border-radius:20px;background:${{c}}22;color:${{c}}">${{t}}${{n?'<span style="opacity:.7">'+n+'</span>':''}}</span>`;}}
-
 function renderAnalytics(){{
   const all=D;
   const byCtry={{}};
