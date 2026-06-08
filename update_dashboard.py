@@ -50,7 +50,7 @@ def stripe_status_to_label(status):
 
 def fetch_all_subscriptions():
     subs = []
-    params = {"limit": 100, "status": "all", "expand": ["data.customer"]}
+    params = {"limit": 100, "status": "all", "expand": ["data.customer", "data.items.data.price"]}
     while True:
         page = stripe.Subscription.list(**params)
         subs.extend(page.data)
@@ -1370,43 +1370,93 @@ function renderAnalytics(){{
 </html>"""
 
 if __name__ == "__main__":
-    print("Fetching subscriptions from Stripe...")
-    subs = fetch_all_subscriptions()
-    print(f"  {len(subs)} subscriptions fetched")
+    import sys
+    errors = []
 
-    print("Loading FX rates...")
-    _load_fx_rates()
+    print("=== Floori Dashboard Update ===")
+    print("Started: " + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
 
-    print("Audit: subscription status breakdown:")
+    # ── 1. Fetch subscriptions ──────────────────────────────────────────────
+    print("\n[1/6] Fetching subscriptions from Stripe...")
+    try:
+        subs = fetch_all_subscriptions()
+        print("  OK " + str(len(subs)) + " subscriptions fetched")
+    except Exception as e:
+        print("  FATAL: " + str(e), file=sys.stderr)
+        sys.exit(1)
+
+    # ── 2. Load FX rates ────────────────────────────────────────────────────
+    print("\n[2/6] Loading FX rates...")
+    try:
+        _load_fx_rates()
+        print("  OK " + str(len(_FX_RATES)) + " currencies loaded")
+    except Exception as e:
+        print("  WARNING: FX rates failed (" + str(e) + ") — non-USD amounts may be 0")
+        errors.append("FX rates: " + str(e))
+
     status_counts = {}
     for s in subs:
         label = stripe_status_to_label(s.status)
         status_counts[label] = status_counts.get(label, 0) + 1
-    for k, v in sorted(status_counts.items()):
-        print(f"  {k}: {v}")
+    print("  Status breakdown: " + str(dict(sorted(status_counts.items()))))
 
-    print("Building rows from Stripe data...")
-    rows = build_rows(subs)
-    print(f"  {len(rows)} unique customers")
+    # ── 3. Build rows + metrics ─────────────────────────────────────────────
+    print("\n[3/6] Building customer rows...")
+    try:
+        rows = build_rows(subs)
+        print("  OK " + str(len(rows)) + " unique customers")
+    except Exception as e:
+        print("  FATAL: " + str(e), file=sys.stderr)
+        sys.exit(1)
 
     totals, active_tot, problem_tot = compute_totals(rows)
 
-    print("Computing subscription metrics...")
-    metrics = compute_subscription_metrics(subs)
-    print(f"  MRR: ${metrics['total_mrr']:,.0f} (monthly ${metrics['monthly_mrr']:,.0f} + annual equiv. ${metrics['annual_mrr']:,.0f})")
+    print("\n[4/6] Computing subscription metrics...")
+    try:
+        metrics = compute_subscription_metrics(subs)
+        print("  OK MRR $" + f"{metrics['total_mrr']:,.0f}" + " | ARR $" + f"{metrics['total_mrr']*12:,.0f}")
+        print("     Active subs: " + str(metrics['active_subs']) +
+              " | Monthly: " + str(metrics['monthly_count']) +
+              " | Annual: " + str(metrics['annual_count']))
+    except Exception as e:
+        print("  FATAL: " + str(e), file=sys.stderr)
+        sys.exit(1)
 
-    print("Fetching today's invoices...")
-    today_invoices = fetch_today_invoices(subs)
-    print(f"  {len(today_invoices)} invoice(s) paid in last 24h")
+    # ── 4. Recent invoices + collected cache ─────────────────────────────────
+    print("\n[5/6] Fetching invoices and collected data...")
+    try:
+        today_invoices = fetch_today_invoices(subs)
+        print("  OK " + str(len(today_invoices)) + " payment(s) in last 24h")
+    except Exception as e:
+        print("  WARNING: today invoices failed: " + str(e))
+        today_invoices = []
+        errors.append("Today invoices: " + str(e))
 
-    print("Fetching monthly collected amounts...")
-    monthly_collected = fetch_monthly_collected()
-    print(f"  Collected by month: {[round(x) for x in monthly_collected]}")
+    try:
+        monthly_collected = fetch_monthly_collected()
+        rounded = ["$" + f"{round(x):,}" for x in monthly_collected]
+        print("  OK collected by month: " + str(rounded))
+    except Exception as e:
+        print("  WARNING: monthly collected failed: " + str(e))
+        monthly_collected = [0.0] * 12
+        errors.append("Monthly collected: " + str(e))
 
+    # ── 5. Render + write ────────────────────────────────────────────────────
+    print("\n[6/6] Rendering dashboard...")
     synced = datetime.now(timezone.utc).strftime("%b %d, %Y at %H:%M UTC")
-    html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected)
+    try:
+        html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected)
+        with open("index.html", "w", encoding="utf-8") as f:
+            f.write(html)
+        print("  OK index.html written (" + f"{len(html):,}" + " bytes)")
+    except Exception as e:
+        print("  FATAL: render failed: " + str(e), file=sys.stderr)
+        sys.exit(1)
 
-    with open("index.html", "w", encoding="utf-8") as f:
-        f.write(html)
-
-    print(f"  index.html written — {len(rows)} customers, synced {synced}")
+    print("\n=== Done: " + synced + " ===")
+    if errors:
+        print("Warnings (" + str(len(errors)) + "):")
+        for err in errors:
+            print("  - " + err)
+    else:
+        print("All steps completed successfully")
