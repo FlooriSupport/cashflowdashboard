@@ -8,7 +8,8 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15        # fail fast if Stripe hangs
+    timeout-minutes: 15
+
     permissions:
       contents: write
 
@@ -21,22 +22,27 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Cache pip dependencies
+      - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: pip-stripe-${{ hashFiles('requirements.txt') }}
+          key: pip-stripe-5x
           restore-keys: pip-stripe-
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install "stripe>=5.0.0,<6.0.0"
+          fi
 
       - name: Fetch Stripe data and regenerate dashboard
         env:
           STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
         run: python update_dashboard.py
 
-      - name: Commit and push updated dashboard
+      - name: Commit and push
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
