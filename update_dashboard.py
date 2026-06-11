@@ -602,15 +602,132 @@ def fetch_monthly_collected():
 
     return collected
 
+def _fetch_month_volume(mi):
+    """
+    Fetch Gross Volume (succeeded PaymentIntents) and Refund Volume for one month.
+    Returns dict with gross, refunds, net, gross_count, refund_count.
+    """
+    month_start = datetime(2026, mi + 1, 1, tzinfo=timezone.utc)
+    month_end   = datetime(2027, 1, 1, tzinfo=timezone.utc) if mi == 11 else datetime(2026, mi + 2, 1, tzinfo=timezone.utc)
+    start_ts, end_ts = int(month_start.timestamp()), int(month_end.timestamp())
+
+    gross, gross_count = 0.0, 0
+    try:
+        params = {"created": {"gte": start_ts, "lte": end_ts}, "limit": 100}
+        while True:
+            page = stripe.PaymentIntent.list(**params)
+            for pi in page.data:
+                try:
+                    d = pi.to_dict()
+                    if d.get("status") != "succeeded":
+                        continue
+                    amt = d.get("amount_received", 0) or 0
+                    if amt <= 0:
+                        continue
+                    cur = (d.get("currency") or "usd").lower()
+                    usd = _to_usd(amt, cur)
+                    if usd > 0:
+                        gross = round(gross + usd, 2)
+                        gross_count += 1
+                except Exception:
+                    continue
+            if not page.has_more:
+                break
+            params["starting_after"] = page.data[-1].id
+    except Exception as e:
+        print(f"  Warning fetching volume month {mi+1}: {e}")
+
+    refunds, refund_count = 0.0, 0
+    try:
+        params = {"created": {"gte": start_ts, "lte": end_ts}, "limit": 100}
+        while True:
+            page = stripe.Refund.list(**params)
+            for ref in page.data:
+                try:
+                    d = ref.to_dict()
+                    if d.get("status") != "succeeded":
+                        continue
+                    amt = d.get("amount", 0) or 0
+                    if amt <= 0:
+                        continue
+                    cur = (d.get("currency") or "usd").lower()
+                    usd = _to_usd(amt, cur)
+                    if usd > 0:
+                        refunds = round(refunds + usd, 2)
+                        refund_count += 1
+                except Exception:
+                    continue
+            if not page.has_more:
+                break
+            params["starting_after"] = page.data[-1].id
+    except Exception as e:
+        print(f"  Warning fetching refunds month {mi+1}: {e}")
+
+    return {
+        "gross": gross, "refunds": refunds, "net": round(gross - refunds, 2),
+        "gross_count": gross_count, "refund_count": refund_count,
+    }
+
+
+def fetch_monthly_volume():
+    """
+    Fetch Gross/Refund/Net Volume per month for Jan-Dec 2026.
+    Cached in volume_cache.json — past months frozen, current always re-fetched.
+    """
+    cache_file = "volume_cache.json"
+    CACHE_VER  = "v1"
+    try:
+        with open(cache_file) as f:
+            raw = json.load(f)
+        cache = raw if raw.get("__version__") == CACHE_VER else {}
+    except Exception:
+        cache = {}
+
+    now = datetime.now(timezone.utc)
+    current_mi = (now.month - 1) if now.year == 2026 else (12 if now.year > 2026 else 0)
+
+    gross_arr = [0.0]*12; refund_arr = [0.0]*12; net_arr = [0.0]*12
+    cache_updated = False
+
+    for mi in range(12):
+        key = f"2026-{mi+1:02d}"
+        if mi < current_mi and key in cache:
+            v = cache[key]
+            gross_arr[mi]  = v.get("gross",   0.0)
+            refund_arr[mi] = v.get("refunds", 0.0)
+            net_arr[mi]    = v.get("net",     0.0)
+        else:
+            v = _fetch_month_volume(mi)
+            gross_arr[mi]  = v["gross"]
+            refund_arr[mi] = v["refunds"]
+            net_arr[mi]    = v["net"]
+            if mi < current_mi:
+                cache[key] = v
+                cache_updated = True
+                print(f"  Volume {key}: gross=${v['gross']:,.0f} refunds=${v['refunds']:,.0f} net=${v['net']:,.0f}")
+
+    if cache_updated:
+        try:
+            cache["__version__"] = CACHE_VER
+            with open(cache_file, "w") as f:
+                json.dump(cache, f, indent=2)
+            print(f"  volume_cache.json saved")
+        except Exception as e:
+            print(f"  Warning: could not save volume cache: {e}")
+
+    return gross_arr, refund_arr, net_arr
 
 
 
-def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected):
+def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_gross=None, monthly_refunds=None, monthly_net=None):
     rows_js          = json.dumps(rows, ensure_ascii=False)
     totals_js        = json.dumps(totals)
     collected_js     = json.dumps(monthly_collected)
     mrr_by_type_js   = json.dumps(metrics.get("mrr_by_type", {}), separators=(",",":"))
     problem_tot_js   = json.dumps([round(x,2) for x in problem_tot], separators=(",",":"))
+    gross_js         = json.dumps([round(x,2) for x in (monthly_gross   or [0]*12)], separators=(",",":"))
+    refunds_js       = json.dumps([round(x,2) for x in (monthly_refunds or [0]*12)], separators=(",",":"))
+    net_js           = json.dumps([round(x,2) for x in (monthly_net     or [0]*12)], separators=(",",":"))
     metrics_js       = json.dumps(metrics)
     today_total      = sum(i["amount"] for i in today_invoices)
     today_count      = len(today_invoices)
@@ -903,6 +1020,60 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     </div>
   </div>
 
+  <!-- Volume card -->
+  <div class="card" style="margin-bottom:1.5rem" id="vol-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <div class="card-title" style="color:var(--text);margin-bottom:0" id="vol-title">Volume</div>
+      <span style="font-size:11px;color:var(--text3)">online card payments</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:1rem">
+      <div style="background:var(--bg2);border-radius:var(--r);padding:.75rem">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px;display:flex;align-items:center;gap:5px">
+          <span style="width:7px;height:7px;border-radius:50%;background:#639922;flex-shrink:0"></span>Gross
+        </div>
+        <div style="font-size:18px;font-weight:500;color:var(--text)" id="vol-gross">—</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px" id="vol-gross-n"></div>
+      </div>
+      <div style="background:var(--bg2);border-radius:var(--r);padding:.75rem">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px;display:flex;align-items:center;gap:5px">
+          <span style="width:7px;height:7px;border-radius:50%;background:#E24B4A;flex-shrink:0"></span>Refunds
+        </div>
+        <div style="font-size:18px;font-weight:500;color:var(--red)" id="vol-refunds">—</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px" id="vol-refunds-n"></div>
+      </div>
+      <div style="background:var(--bg2);border-radius:var(--r);padding:.75rem">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px;display:flex;align-items:center;gap:5px">
+          <span style="width:7px;height:7px;border-radius:50%;background:#185FA5;flex-shrink:0"></span>Net
+        </div>
+        <div style="font-size:18px;font-weight:500;color:var(--blue)" id="vol-net">—</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px" id="vol-pct"></div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:7px">
+      <div style="display:grid;grid-template-columns:60px 1fr 72px;gap:8px;align-items:center">
+        <span style="font-size:11px;color:var(--text3);text-align:right">Gross</span>
+        <div style="height:7px;background:var(--bg2);border-radius:4px;overflow:hidden">
+          <div id="vol-bar-gross" style="height:100%;width:100%;background:#639922;border-radius:4px;transition:width .4s"></div>
+        </div>
+        <span style="font-size:12px;font-weight:500;color:var(--text)" id="vol-bar-gross-lbl"></span>
+      </div>
+      <div style="display:grid;grid-template-columns:60px 1fr 72px;gap:8px;align-items:center">
+        <span style="font-size:11px;color:var(--text3);text-align:right">Refunds</span>
+        <div style="height:7px;background:var(--bg2);border-radius:4px;overflow:hidden">
+          <div id="vol-bar-refunds" style="height:100%;width:0%;background:#E24B4A;border-radius:4px;transition:width .4s"></div>
+        </div>
+        <span style="font-size:12px;color:var(--red)" id="vol-bar-refunds-lbl"></span>
+      </div>
+      <div style="display:grid;grid-template-columns:60px 1fr 72px;gap:8px;align-items:center">
+        <span style="font-size:11px;color:var(--text3);text-align:right">Net</span>
+        <div style="height:7px;background:var(--bg2);border-radius:4px;overflow:hidden">
+          <div id="vol-bar-net" style="height:100%;width:0%;background:#185FA5;border-radius:4px;transition:width .4s"></div>
+        </div>
+        <span style="font-size:12px;font-weight:500;color:#185FA5" id="vol-bar-net-lbl"></span>
+      </div>
+    </div>
+  </div>
+
   <div class="card" style="margin-bottom:1.5rem">
     <div class="card-title" style="color:var(--text)">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h · USD equiv.)</span></div>
     {"<div class='inv-wrap'><table class='inv-table'><thead><tr><th>Customer</th><th class='r'>Amount</th><th>Time</th></tr></thead><tbody>" + today_rows_html + "</tbody></table></div>" if today_invoices else "<div class='empty'>No payments in the last 24h</div>"}
@@ -988,6 +1159,9 @@ const D={rows_js}.filter(r=>r[1]!=="Cancelled");
 const COLLECTED={collected_js};
 const MRR_BY_TYPE={mrr_by_type_js};
 const PROBLEM_TOTALS={problem_tot_js};
+const GROSS_VOL={gross_js};
+const REFUND_VOL={refunds_js};
+const NET_VOL={net_js};
 const BC={{"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"}};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{{style:"currency",currency:"USD",maximumFractionDigits:0}}).format(Math.abs(v));
 const fmtS=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
@@ -1024,10 +1198,37 @@ function setMonth(i){{
   document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
   updateAll();
 }}
+
+function updateVolCard(){{
+  const v={{
+    gross:   mi>=0?GROSS_VOL[mi]:GROSS_VOL.reduce((s,x)=>s+x,0),
+    refunds: mi>=0?REFUND_VOL[mi]:REFUND_VOL.reduce((s,x)=>s+x,0),
+    net:     mi>=0?NET_VOL[mi]:NET_VOL.reduce((s,x)=>s+x,0),
+  }};
+  const label=mi===-1?"Full Year 2026":MONTHS[mi];
+  if(document.getElementById("vol-title"))
+    document.getElementById("vol-title").textContent="Volume — "+label;
+  if(!document.getElementById("vol-gross")) return;
+  const g=v.gross,r=v.refunds,n=v.net;
+  const pct=g>0?((n/g)*100).toFixed(1):"—";
+  document.getElementById("vol-gross").textContent=g>0?fmt(g):"—";
+  document.getElementById("vol-refunds").textContent=r>0?"-"+fmtS(r):"—";
+  document.getElementById("vol-net").textContent=n>0?fmt(n):"—";
+  document.getElementById("vol-pct").textContent=g>0?pct+"% of gross":"";
+  document.getElementById("vol-bar-gross-lbl").textContent=g>0?fmtS(g):"—";
+  document.getElementById("vol-bar-refunds-lbl").textContent=r>0?"-"+fmtS(r):"—";
+  document.getElementById("vol-bar-net-lbl").textContent=n>0?fmtS(n):"—";
+  const maxW=g||1;
+  document.getElementById("vol-bar-gross").style.width="100%";
+  document.getElementById("vol-bar-refunds").style.width=Math.min(100,(r/maxW)*100).toFixed(1)+"%";
+  document.getElementById("vol-bar-net").style.width=Math.min(100,(n/maxW)*100).toFixed(1)+"%";
+}}
+
 function updateAll(){{
   sf=document.getElementById("flt").value;
   updateSelCard();
   updateCmpCard();
+  updateVolCard();
   pg=1; _render();
 }}
 
@@ -1441,11 +1642,19 @@ if __name__ == "__main__":
         monthly_collected = [0.0] * 12
         errors.append("Monthly collected: " + str(e))
 
+    try:
+        monthly_gross, monthly_refunds, monthly_net = fetch_monthly_volume()
+        print("  OK volume by month: gross=" + str(["$"+f"{round(x):,}" for x in monthly_gross]))
+    except Exception as e:
+        print("  WARNING: monthly volume failed: " + str(e))
+        monthly_gross = monthly_refunds = monthly_net = [0.0] * 12
+        errors.append("Monthly volume: " + str(e))
+
     # ── 5. Render + write ────────────────────────────────────────────────────
     print("\n[6/6] Rendering dashboard...")
     synced = datetime.now(timezone.utc).strftime("%b %d, %Y at %H:%M UTC")
     try:
-        html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected)
+        html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_gross, monthly_refunds, monthly_net)
         with open("index.html", "w", encoding="utf-8") as f:
             f.write(html)
         print("  OK index.html written (" + f"{len(html):,}" + " bytes)")
