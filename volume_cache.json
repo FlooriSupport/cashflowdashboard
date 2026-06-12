@@ -1,0 +1,38 @@
+{
+  "2026-01": {
+    "gross": 28255.64,
+    "refunds": 0.0,
+    "net": 28255.64,
+    "gross_count": 57,
+    "refund_count": 0
+  },
+  "2026-02": {
+    "gross": 31760.17,
+    "refunds": 0.0,
+    "net": 31760.17,
+    "gross_count": 51,
+    "refund_count": 0
+  },
+  "2026-03": {
+    "gross": 30354.16,
+    "refunds": 0.0,
+    "net": 30354.16,
+    "gross_count": 55,
+    "refund_count": 0
+  },
+  "2026-04": {
+    "gross": 28690.75,
+    "refunds": 3500.0,
+    "net": 25190.75,
+    "gross_count": 49,
+    "refund_count": 1
+  },
+  "2026-05": {
+    "gross": 32171.17,
+    "refunds": 6928.0,
+    "net": 25243.17,
+    "gross_count": 42,
+    "refund_count": 3
+  },
+  "__version__": "v1"
+}
