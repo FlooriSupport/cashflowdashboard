@@ -880,6 +880,14 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
 .ms-pill.active{{background:var(--green);color:#fff;font-weight:700}}
 .ms-yr.active{{background:var(--blue);color:#fff}}
 .ms-yr{{border-left:0.5px solid var(--border2);margin-left:4px;padding-left:8px}}
+
+/* Info tooltip */
+.info-btn{{position:relative;display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--bg2);border:0.5px solid var(--border);color:var(--text3);font-size:9px;font-weight:700;cursor:pointer;flex-shrink:0;vertical-align:middle;margin-left:5px;line-height:1;transition:all .15s;user-select:none}}
+.info-btn:hover,.info-btn.open{{background:var(--bg3);color:var(--text2);border-color:var(--text3)}}
+.info-tip{{display:none;position:absolute;z-index:99;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);width:220px;background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--r);padding:9px 11px;font-size:12px;color:var(--text2);line-height:1.5;box-shadow:0 4px 16px rgba(0,0,0,.2);pointer-events:none}}
+.info-tip::after{{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--border2)}}
+.info-btn.open .info-tip{{display:block}}
+.info-btn:hover .info-tip{{display:block}}
 @media(max-width:700px){{.metrics{{grid-template-columns:repeat(2,1fr)}}.row2,.analytics-grid{{grid-template-columns:1fr}}.ms-pill{{font-size:11px;padding:6px 2px}}}}
 /* tabs */
 .tabs{{display:flex;gap:2px;margin-bottom:1.5rem;background:var(--bg2);border-radius:var(--rl);padding:4px}}
@@ -949,22 +957,22 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   <div id="page-overview">
   <div class="metrics">
     <div class="mc">
-      <div class="lbl">Total MRR</div>
+      <div class="lbl" style="display:flex;align-items:center">Total MRR<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">Receita mensal recorrente de todas as assinaturas ativas. Inclui mensalistas + anuais ÷ 12, todas as moedas convertidas para USD pela taxa do dia via open.er-api.com.</span></span></div>
       <div class="val" style="color:var(--green)">${metrics["total_mrr"]:,.0f}</div>
       <div class="sub">{metrics["active_subs"]} active subscriptions</div>
     </div>
     <div class="mc">
-      <div class="lbl">Monthly revenue</div>
+      <div class="lbl" style="display:flex;align-items:center">Monthly revenue<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">MRR apenas das assinaturas com ciclo mensal. Exclui assinaturas anuais.</span></span></div>
       <div class="val">${metrics["monthly_mrr"]:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text3)">/mo</span></div>
       <div class="sub">{metrics["monthly_count"]} monthly subscribers</div>
     </div>
     <div class="mc">
-      <div class="lbl">ARR</div>
+      <div class="lbl" style="display:flex;align-items:center">ARR<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">Annual Recurring Revenue = MRR × 12. Representa o valor anualizado de toda a base ativa atual, incluindo mensalistas e anuais.</span></span></div>
       <div class="val">${metrics["total_mrr"]*12:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
       <div class="sub">{metrics["annual_count"]} annual + {metrics["monthly_count"]} monthly plans</div>
     </div>
     <div class="mc">
-      <div class="lbl">Recent collected</div>
+      <div class="lbl" style="display:flex;align-items:center">Recent collected<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">Soma dos pagamentos recebidos nas últimas 24h, convertidos para USD. Fonte: faturas pagas com amount_paid > 0.</span></span></div>
       <div class="val" style="color:{'var(--green)' if today_total>0 else 'var(--text3)'}">{today_total_fmt}</div>
       <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · since yesterday · USD</div>
     </div>
@@ -973,7 +981,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   <div class="row2" style="margin-bottom:1.5rem;grid-template-columns:1fr 1fr 1fr">
     <!-- Expected vs Collected -->
     <div class="card">
-      <div class="card-title" style="color:var(--text)" id="cmp-title">Expected vs Collected</div>
+      <div class="card-title" style="color:var(--text);display:flex;align-items:center;gap:4px" id="cmp-title">Expected vs Collected<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">Esperado = projeção de billing do mês selecionado (assinaturas ativas). Coletado = faturas pagas com amount_paid > 0 nesse mês, via Invoice.list.</span></span></div>
       <div class="cmp-bars">
         <div class="cmp-col">
           <div class="cmp-amt" id="cval-exp" style="color:var(--green)">—</div>
@@ -994,7 +1002,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     </div>
     <!-- Period summary -->
     <div class="card">
-      <div class="card-title" style="color:var(--text)" id="sel-title">Selected period</div>
+      <div class="card-title" style="color:var(--text);display:flex;align-items:center;gap:4px" id="sel-title">Selected period<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">Resumo do período selecionado na barra de meses. Clientes ativos = únicos com todas as assinaturas ativas. Billing this month = com next_inv nesse mês. At risk = MRR mensal de Past due + Unpaid.</span></span></div>
       <div class="kv"><span class="k">Expected revenue</span><span class="v green" id="sel-expected">—</span></div>
       <div class="kv"><span class="k">Active customers</span><span class="v" id="sel-total-active" title="Unique customers with all-active status">—</span></div>
       <div class="kv"><span class="k">Active paying this month</span><span class="v" id="sel-active-count">—</span></div>
@@ -1003,7 +1011,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     <!-- At-risk bar chart card -->
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
-        <div class="card-title" style="color:var(--text);margin-bottom:0">Revenue at risk</div>
+        <div class="card-title" style="color:var(--text);margin-bottom:0;display:flex;align-items:center;gap:4px">Revenue at risk<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">MRR mensal equivalente de clientes com status Past due ou Unpaid. A barra mostra a progressão mês a mês ao longo de 2026 — útil para avaliar se a inadimplência cresce ou diminui.</span></span></div>
         <span style="font-size:20px;font-weight:700;color:var(--red)" id="risk-amt">—</span>
       </div>
       <div id="risk-bars" style="display:flex;align-items:flex-end;gap:3px;height:64px;margin-bottom:8px"></div>
@@ -1023,7 +1031,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   <!-- Volume card -->
   <div class="card" style="margin-bottom:1.5rem" id="vol-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-      <div class="card-title" style="color:var(--text);margin-bottom:0" id="vol-title">Volume</div>
+      <div class="card-title" style="color:var(--text);margin-bottom:0;display:flex;align-items:center;gap:4px" id="vol-title">Volume<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">Gross = soma de PaymentIntents succeeded (pagamentos online por cartão). Refunds = reembolsos com status succeeded no mesmo período. Net = Gross − Refunds. Não inclui boleto, wire transfer ou crédito de saldo.</span></span></div>
       <span style="font-size:11px;color:var(--text3)">online card payments</span>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:1rem">
@@ -1122,17 +1130,17 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   <div id="page-analytics" style="display:none">
     <div class="analytics-grid" style="margin-bottom:1.5rem">
       <div class="card">
-        <div class="card-title" style="color:var(--text)">Customers by type</div>
+        <div class="card-title" style="color:var(--text);display:flex;align-items:center;gap:4px">Customers by type<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">Distribuição de clientes ativos por tipo, baseada no campo CompanyType do HubSpot (649 mapeamentos por Stripe Customer ID). Inclui apenas status Active.</span></span></div>
         <div id="pie-count" style="display:flex;flex-direction:column;align-items:center;gap:16px"></div>
       </div>
       <div class="card">
-        <div class="card-title" style="color:var(--text)">MRR by type</div>
+        <div class="card-title" style="color:var(--text);display:flex;align-items:center;gap:4px">MRR by type<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">MRR mensal por tipo de cliente, calculado por assinatura (não por cliente) para tratar corretamente intervalos mistos. Soma deve ser igual ao Total MRR do Overview.</span></span></div>
         <div id="pie-mrr" style="display:flex;flex-direction:column;align-items:center;gap:16px"></div>
       </div>
     </div>
 
     <div class="card" style="margin-bottom:1.5rem">
-      <div class="card-title" style="color:var(--text)">Revenue &amp; customers by country</div>
+      <div class="card-title" style="color:var(--text);display:flex;align-items:center;gap:4px">Revenue &amp; customers by country<span class="info-btn" onclick="this.classList.toggle('open')" tabindex="0">i<span class="info-tip">País identificado pelo address.country do cliente no Stripe. Quando ausente, inferido pela moeda da assinatura (ex: BRL → BR). MRR = equivalente mensal, incluindo anuais ÷ 12.</span></span></div>
       <div style="overflow-x:auto;border-radius:var(--r);border:0.5px solid var(--border2)">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead>
