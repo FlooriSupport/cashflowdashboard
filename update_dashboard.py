@@ -319,6 +319,33 @@ def compute_totals(rows):
 
 # ── Invoice-based metrics (single source of truth) ─────────────────────────
 
+def _load_fx_rates():
+    """Fetch current USD exchange rates from open.er-api.com (free, no auth)."""
+    import urllib.request
+    global _FX_RATES
+    try:
+        with urllib.request.urlopen("https://open.er-api.com/v6/latest/USD", timeout=8) as r:
+            data = json.loads(r.read().decode())
+            _FX_RATES = data.get("rates", {})
+            print(f"  FX rates loaded ({len(_FX_RATES)} currencies)")
+    except Exception as e:
+        print(f"  Warning: could not load FX rates: {e}. Using 1:1 fallback.")
+
+def _to_usd(amount_cents, currency):
+    """Convert amount in cents (given currency) to USD float using current FX rates."""
+    amount = (amount_cents or 0) / 100
+    cur = (currency or "usd").upper()
+    if cur == "USD":
+        return round(amount, 2)
+    rate = _FX_RATES.get(cur, 0)
+    if rate > 0:
+        return round(amount / rate, 2)
+    # Unknown rate: log and return 0 (better than silently treating as USD)
+    if cur not in ("", "USD"):
+        print(f"  Warning: no FX rate for {cur}, skipping amount {amount:.2f}")
+    return 0.0
+
+
 def _inv_interval(inv_dict: dict) -> str:
     """Detect billing interval from invoice line period duration."""
     try:
