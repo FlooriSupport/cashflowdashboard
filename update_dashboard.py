@@ -60,6 +60,49 @@ def fetch_all_subscriptions():
     return subs
 
 
+def fetch_invoice_avg_by_sub(n=3):
+    """
+    For each subscription, average the last n PAID invoice amounts (USD).
+    Stripe Invoice.list returns invoices newest-first, so the first n
+    invoices seen for a given subscription id are its n most recent paid
+    invoices — no extra sorting needed.
+
+    Used so the customer table's "Base amount" reflects what a customer is
+    actually being billed (recent invoice history) instead of the
+    subscription's current nominal price, which can be stale after
+    proration, discounts, or item changes.
+
+    Returns: {sub_id: avg_amount_usd}. Subscriptions with no paid invoice
+    yet are simply absent — callers should fall back to the nominal price.
+    """
+    by_sub = {}  # sub_id -> list[amount_usd], most-recent-first, capped at n
+    params = {"status": "paid", "limit": 100}
+    while True:
+        page = stripe.Invoice.list(**params)
+        for inv in page.data:
+            try:
+                d = inv.to_dict()
+                sub_id = str(d.get("subscription") or "")
+                if not sub_id:
+                    continue
+                lst = by_sub.setdefault(sub_id, [])
+                if len(lst) >= n:
+                    continue
+                paid_c = d.get("amount_paid", 0) or 0
+                if paid_c <= 0:
+                    continue
+                currency = (d.get("currency") or "usd").lower()
+                lst.append(_to_usd(paid_c, currency))
+            except Exception:
+                continue
+        if not page.has_more:
+            break
+        params["starting_after"] = page.data[-1].id
+
+    return {sub_id: round(sum(amts) / len(amts), 2)
+            for sub_id, amts in by_sub.items() if amts}
+
+
 def _compute_projections(sub_dict, amount_usd, interval):
     """
     Returns list of 8 floats (May–Dec 2026).
@@ -174,12 +217,18 @@ def _resolve_customer_type(cust_id: str, email: str, meta_type: str) -> str:
     return meta_type or ""
 
 
-def build_rows(subs):
+def build_rows(subs, invoice_avg_by_sub=None):
     """
     Build one row per unique customer (by customer ID).
     Row format: [name, status, interval, base_usd, proj[12], next_invoice_str]
     Only USD subscriptions are included in projections.
     Non-USD amounts shown as base_usd=0 but customer still appears.
+
+    base_usd per subscription is the average of its last 3 paid invoices
+    (invoice_avg_by_sub, from fetch_invoice_avg_by_sub) when available —
+    this reflects actual billing history rather than the subscription's
+    current nominal price. Falls back to the nominal price for
+    subscriptions with no paid invoice yet (e.g. brand new, still trialing).
     """
     # Group subscriptions by customer ID — keep most severe status.
     # Active must outrank Cancelled: a customer with one active sub and one
@@ -235,7 +284,10 @@ def build_rows(subs):
             ((it.get("price") or {}).get("unit_amount") or 0) * ((it.get("quantity") or 1))
             for it in (items_data or [item])
         )
-        amount_usd = round(_to_usd(total_cents, currency), 2)
+        nominal_usd = round(_to_usd(total_cents, currency), 2)
+        sub_id  = getattr(sub, "id", "") or ""
+        inv_avg = (invoice_avg_by_sub or {}).get(sub_id)
+        amount_usd = round(inv_avg, 2) if inv_avg is not None else nominal_usd
 
         # Currency-based country fallback (applied after currency is defined)
         if not country:
@@ -959,10 +1011,10 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
       </div>
       <div style="background:var(--bg2);border-radius:var(--r);padding:.75rem">
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px;display:flex;align-items:center;gap:5px">
-          <span style="width:7px;height:7px;border-radius:50%;background:#854F0B;flex-shrink:0"></span>Credits
+          <span style="width:7px;height:7px;border-radius:50%;background:#E24B4A;flex-shrink:0"></span>Refunds
         </div>
-        <div style="font-size:18px;font-weight:500;color:#854F0B" id="vol-credits">—</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">balance applied</div>
+        <div style="font-size:18px;font-weight:500;color:var(--red)" id="vol-credits">—</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">money returned</div>
       </div>
       <div style="background:var(--bg2);border-radius:var(--r);padding:.75rem">
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px;display:flex;align-items:center;gap:5px">
@@ -991,11 +1043,11 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
         <span style="font-size:12px;font-weight:500;color:var(--text)" id="vol-bar-gross-lbl"></span>
       </div>
       <div style="display:grid;grid-template-columns:60px 1fr 72px;gap:8px;align-items:center">
-        <span style="font-size:11px;color:var(--text3);text-align:right">Credits</span>
+        <span style="font-size:11px;color:var(--text3);text-align:right">Refunds</span>
         <div style="height:7px;background:var(--bg2);border-radius:4px;overflow:hidden">
-          <div id="vol-bar-credits" style="height:100%;width:0%;background:#854F0B;border-radius:4px;transition:width .4s"></div>
+          <div id="vol-bar-credits" style="height:100%;width:0%;background:#E24B4A;border-radius:4px;transition:width .4s"></div>
         </div>
-        <span style="font-size:12px;color:#854F0B" id="vol-bar-credits-lbl"></span>
+        <span style="font-size:12px;color:var(--red)" id="vol-bar-credits-lbl"></span>
       </div>
       <div style="display:grid;grid-template-columns:60px 1fr 72px;gap:8px;align-items:center">
         <span style="font-size:11px;color:var(--text3);text-align:right">Collected</span>
@@ -1034,7 +1086,6 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
           <th style="width:11%;cursor:pointer;user-select:none" onclick="setSortCol(7)">Type <span id="sh7"></span></th>
           <th style="width:11%;cursor:pointer;user-select:none" onclick="setSortCol(1)">Status <span id="sh1"></span></th>
           <th style="width:14%;cursor:pointer;user-select:none" onclick="setSortCol(5)">Next invoice <span id="sh5"></span></th>
-          <th style="width:12%;cursor:pointer;user-select:none" class="r col-annual" onclick="setSortCol(8)">Annual total <span id="sh8"></span></th>
           <th style="width:12%;cursor:pointer;user-select:none" class="r" onclick="setSortCol(3)">Base amount <span id="sh3"></span></th>
           <th style="width:8%;cursor:pointer;user-select:none" onclick="setSortCol(2)">Interval <span id="sh2"></span></th>
         </tr></thead>
@@ -1129,14 +1180,12 @@ function setMonth(i){{
   if(document.getElementById("sel-title")) document.getElementById("sel-title").textContent=label;
   if(document.getElementById("tbl-title")) document.getElementById("tbl-title").textContent=isYr?"All customers":"Customers — "+label;
   if(document.getElementById("tbl-hint")) document.getElementById("tbl-hint").textContent=isYr?"Showing all customers — Jan–Dec 2026":"Customers with expected revenue in "+label;
-  document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
   updateAll();
 }}
 
 function updateVolCard(){{
   const sum=arr=>arr.reduce((s,x)=>s+x,0);
   const b=mi>=0?BILLED_VOL[mi]:sum(BILLED_VOL);
-  const cr=mi>=0?CREDITS_VOL[mi]:sum(CREDITS_VOL);
   const c=mi>=0?COLLECTED[mi]:sum(COLLECTED);
   const r=mi>=0?REFUND_VOL[mi]:sum(REFUND_VOL);
   const n=mi>=0?NET_VOL[mi]:sum(NET_VOL);
@@ -1145,7 +1194,7 @@ function updateVolCard(){{
     document.getElementById("vol-title").textContent="Volume — "+label;
   if(!document.getElementById("vol-gross")) return;
   document.getElementById("vol-gross").textContent=b>0?fmt(b):"—";
-  document.getElementById("vol-credits").textContent=cr>0?"-"+fmtS(cr):"—";
+  document.getElementById("vol-credits").textContent=r>0?"-"+fmtS(r):"—";
   document.getElementById("vol-net").textContent=c>0?fmt(c):"—";
   document.getElementById("vol-pct").textContent=b>0?((c/b)*100).toFixed(1)+"% collected":"";
   document.getElementById("vol-refunds").textContent=r>0?"-"+fmtS(r):"—";
@@ -1153,8 +1202,8 @@ function updateVolCard(){{
   const maxW=b||1;
   document.getElementById("vol-bar-gross").style.width="100%";
   document.getElementById("vol-bar-gross-lbl").textContent=b>0?fmtS(b):"—";
-  document.getElementById("vol-bar-credits").style.width=Math.min(100,(cr/maxW)*100).toFixed(1)+"%";
-  document.getElementById("vol-bar-credits-lbl").textContent=cr>0?"-"+fmtS(cr):"—";
+  document.getElementById("vol-bar-credits").style.width=Math.min(100,(r/maxW)*100).toFixed(1)+"%";
+  document.getElementById("vol-bar-credits-lbl").textContent=r>0?"-"+fmtS(r):"—";
   document.getElementById("vol-bar-net").style.width=Math.min(100,(c/maxW)*100).toFixed(1)+"%";
   document.getElementById("vol-bar-net-lbl").textContent=c>0?fmtS(c):"—";
   const refPct=b>0?Math.min(100,(r/b)*100).toFixed(1):0;
@@ -1281,12 +1330,10 @@ function updateCmpCard(){{
 
 let sortCol=3,sortDir=-1; // default: base amount descending
 
-function annualVal(r){{return r[2]==="Annual"?r[3]:r[3]*12;}}
-
 function setSortCol(col){{
-  if(sortCol===col){{sortDir*=-1;}}else{{sortCol=col;sortDir=col===3||col===8?-1:1;}}
+  if(sortCol===col){{sortDir*=-1;}}else{{sortCol=col;sortDir=col===3?-1:1;}}
   // Update header indicators
-  [0,1,2,3,5,6,7,8].forEach(c=>{{
+  [0,1,2,3,5,6,7].forEach(c=>{{
     const el=document.getElementById("sh"+c);
     if(el) el.textContent=sortCol===c?(sortDir===1?" ↑":" ↓"):"";
     const th=el&&el.parentElement;
@@ -1326,8 +1373,7 @@ function getFiltered(){{
   const filtered=byM.filter(r=>!q||r[0].toLowerCase().includes(q));
   return filtered.slice().sort((a,b)=>{{
     let va,vb;
-    if(sortCol===8){{va=annualVal(a);vb=annualVal(b);}}
-    else if(sortCol===3){{va=a[3];vb=b[3];}}
+    if(sortCol===3){{va=a[3];vb=b[3];}}
     else{{va=String(a[sortCol]||"").toLowerCase();vb=String(b[sortCol]||"").toLowerCase();
       return sortDir*va.localeCompare(vb);}}
     return sortDir*(vb-va);
@@ -1347,7 +1393,6 @@ function _render(){{
   document.getElementById("ct-lbl").textContent=f.length+" customers";
   document.getElementById("tbody").innerHTML=rows.map((r,i)=>{{
     const prob=r[1]==="Past due"||r[1]==="Unpaid";
-    const annualTotal=r[2]==="Annual"?r[3]:r[3]*12;
     const ctry=r[6]||"";
     return `<tr>
       <td style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{r[0]}}</td>
@@ -1355,7 +1400,6 @@ function _render(){{
       <td>${{r[7]?typePill(r[7],""): '<span style="color:var(--text3);font-size:11px">—</span>'}}</td>
       <td><span class="badge ${{BC[r[1]]||"b-unpaid"}}">${{r[1]}}</span></td>
       <td style="font-size:12px;color:${{prob?"var(--red)":"var(--text2)"}};font-weight:${{prob?500:400}}">${{r[5]||"—"}}</td>
-      <td class="r col-annual" style="color:var(--text2)">${{annualTotal>0?fmt(annualTotal):"—"}}</td>
       <td class="r" style="color:var(--text2)">$${{r[3].toLocaleString()}}</td>
       <td><span class="freq">${{r[2]}}</span></td>
     </tr>`;
@@ -1542,7 +1586,15 @@ if __name__ == "__main__":
     # ── 3. Build rows + metrics ─────────────────────────────────────────────
     print("\n[3/6] Building customer rows...")
     try:
-        rows = build_rows(subs)
+        invoice_avg_by_sub = fetch_invoice_avg_by_sub(n=3)
+        print("  OK invoice-based base amount for " + str(len(invoice_avg_by_sub)) + " subscriptions")
+    except Exception as e:
+        print("  WARNING: invoice average fetch failed (" + str(e) + ") — falling back to nominal subscription price")
+        invoice_avg_by_sub = {}
+        errors.append("Invoice average: " + str(e))
+
+    try:
+        rows = build_rows(subs, invoice_avg_by_sub)
         print("  OK " + str(len(rows)) + " unique customers")
     except Exception as e:
         print("  FATAL: " + str(e), file=sys.stderr)
