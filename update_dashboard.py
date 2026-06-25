@@ -229,6 +229,15 @@ def build_rows(subs, invoice_avg_by_sub=None):
     this reflects actual billing history rather than the subscription's
     current nominal price. Falls back to the nominal price for
     subscriptions with no paid invoice yet (e.g. brand new, still trialing).
+
+    A customer's base_usd/proj are summed only across their CURRENTLY
+    non-cancelled subscriptions (Active/Past due/Unpaid). A long-cancelled
+    legacy subscription (e.g. an old plan a customer upgraded away from
+    years ago) is excluded so it doesn't inflate the base amount of an
+    otherwise normal active customer. If every subscription a customer
+    has is cancelled, all of them are summed instead (so cancelled-only
+    customers — who are filtered out of the visible table anyway — still
+    get a sensible historical figure rather than zero).
     """
     # Group subscriptions by customer ID — keep most severe status.
     # Active must outrank Cancelled: a customer with one active sub and one
@@ -313,39 +322,45 @@ def build_rows(subs, invoice_avg_by_sub=None):
                 "name":       display,
                 "status":     label,
                 "interval":   interval,
-                "amount_usd": amount_usd,
-                "active_usd": amount_usd if label == "Active" else 0.0,
-                "proj":       proj,
                 "next_inv":   next_inv,
                 "country":    country,
                 "cust_type":  cust_type,
+                "subs":       [],  # raw per-subscription contributions
             }
-        else:
-            ex = customers[cust_id]
-            if not ex.get("cust_type") and cust_type:
-                ex["cust_type"] = cust_type
-            # Escalate status if worse
-            if priority.get(label, 0) > priority.get(ex["status"], 0):
-                ex["status"]   = label
-                ex["next_inv"] = next_inv
-            # Sum projections and amounts (customer may have multiple subs)
-            ex["proj"]       = [round(a + b, 2) for a, b in zip(ex["proj"], proj)]
-            ex["amount_usd"] = round(ex["amount_usd"] + amount_usd, 2)
-            if label == "Active":
-                ex["active_usd"] = round(ex.get("active_usd", 0.0) + amount_usd, 2)
+        ex = customers[cust_id]
+        if not ex.get("cust_type") and cust_type:
+            ex["cust_type"] = cust_type
+        # Escalate status if worse
+        if priority.get(label, 0) > priority.get(ex["status"], 0):
+            ex["status"]   = label
+            ex["next_inv"] = next_inv
+        # Prefer the interval of a currently-billing sub over a cancelled one
+        if label != "Cancelled":
+            ex["interval"] = interval
+        ex["subs"].append({"label": label, "amount_usd": amount_usd, "proj": proj})
 
     rows = []
     for info in customers.values():
+        subs_list = info["subs"]
+        non_cancelled = [s for s in subs_list if s["label"] != "Cancelled"]
+        use = non_cancelled if non_cancelled else subs_list
+
+        amount_usd = round(sum(s["amount_usd"] for s in use), 2)
+        proj = [0.0] * 12
+        for s in use:
+            proj = [round(a + b, 2) for a, b in zip(proj, s["proj"])]
+        active_usd = round(sum(s["amount_usd"] for s in use if s["label"] == "Active"), 2)
+
         rows.append([
             info["name"],               # 0
             info["status"],             # 1
             info["interval"],           # 2
-            info["amount_usd"],         # 3 total (all subs)
-            info["proj"],               # 4
+            amount_usd,                 # 3 total (non-cancelled subs only; falls back to all if customer has none)
+            proj,                       # 4
             info["next_inv"],           # 5
             info.get("country",""),     # 6
             info.get("cust_type",""),   # 7
-            info.get("active_usd",0.0), # 8 active-only amount (for MRR accuracy)
+            active_usd,                 # 8 active-only amount (for MRR accuracy)
         ])
 
     rows.sort(key=lambda r: r[3], reverse=True)
@@ -369,6 +384,59 @@ def compute_totals(rows):
         [round(x, 2) for x in problem],
     )
 
+
+def _compute_mrr_from_rows(rows) -> dict:
+    """
+    Compute MRR/ARR directly from customer rows, using r[8] (active_usd —
+    the sum of a customer's currently-Active subscriptions only; see
+    build_rows()).
+
+    Replaces the older invoice-recency-based calculation
+    (_compute_mrr_from_invoices), which had two bugs that made "Total MRR"
+    diverge sharply from "Expected": (1) it dropped any subscription whose
+    latest paid invoice was more than 35 days old — which silently excludes
+    legitimate annual subscriptions and anything billed on a longer cycle,
+    and (2) it fell back to all-zero metrics whenever the invoice cache had
+    nothing left to re-fetch. Rows are always complete and month-agnostic
+    (every active subscription counts, regardless of when it last
+    invoiced), so this is consistent with how "Expected" is computed.
+    """
+    monthly_mrr   = 0.0
+    annual_arr    = 0.0
+    monthly_count = 0
+    annual_count  = 0
+    active_subs   = 0
+    mrr_by_type: dict = {}
+
+    for r in rows:
+        amt = r[8]  # active-only amount
+        if not amt:
+            continue
+        interval = r[2]
+        ctype = r[7] or "Unclassified"
+
+        active_subs += 1
+        if interval == "Annual":
+            annual_arr   += amt
+            annual_count += 1
+            mrr_contrib   = amt / 12
+        else:
+            monthly_mrr   += amt
+            monthly_count += 1
+            mrr_contrib    = amt
+        mrr_by_type[ctype] = round(mrr_by_type.get(ctype, 0.0) + mrr_contrib, 2)
+
+    total_mrr = round(monthly_mrr + annual_arr / 12, 2)
+    return {
+        "monthly_mrr":   round(monthly_mrr, 2),
+        "annual_arr":    round(annual_arr, 2),
+        "annual_mrr":    round(annual_arr / 12, 2),
+        "total_mrr":     total_mrr,
+        "monthly_count": monthly_count,
+        "annual_count":  annual_count,
+        "active_subs":   active_subs,
+        "mrr_by_type":   mrr_by_type,
+    }
 
 
 # ── Invoice-based metrics (single source of truth) ─────────────────────────
@@ -770,7 +838,7 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .topbar h1{{font-size:16px;font-weight:500;display:flex;align-items:center;gap:8px}}
 .si{{color:var(--stripe)}}
 .synced{{font-size:11px;color:var(--text3);margin-top:3px}}
-.metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1.5rem}}
+.metrics{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:1.5rem}}
 .mc{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1rem}}
 .mc .lbl{{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}}
 .mc .val{{font-size:24px;font-weight:500;line-height:1.1}}
@@ -924,14 +992,9 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   <div id="page-overview">
   <div class="metrics">
     <div class="mc">
-      <div class="lbl">Total MRR</div>
+      <div class="lbl">MRR</div>
       <div class="val" style="color:var(--green)">${metrics["total_mrr"]:,.0f}</div>
       <div class="sub">{metrics["active_subs"]} active subscriptions</div>
-    </div>
-    <div class="mc">
-      <div class="lbl">Monthly revenue</div>
-      <div class="val">${metrics["monthly_mrr"]:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text3)">/mo</span></div>
-      <div class="sub">{metrics["monthly_count"]} monthly subscribers</div>
     </div>
     <div class="mc">
       <div class="lbl">ARR</div>
@@ -945,7 +1008,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     </div>
   </div>
 
-  <div class="row2" style="margin-bottom:1.5rem;grid-template-columns:1fr 1fr 1fr">
+  <div class="row2">
     <!-- Expected vs Collected -->
     <div class="card">
       <div class="card-title" style="color:var(--text)" id="cmp-title">Expected vs Collected</div>
@@ -967,25 +1030,13 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
       </div>
       <div class="cmp-diff" id="cmp-diff"></div>
     </div>
-    <!-- Period summary -->
-    <div class="card">
-      <div class="card-title" style="color:var(--text)" id="sel-title">Selected period</div>
-      <div class="kv"><span class="k">Expected revenue</span><span class="v green" id="sel-expected">—</span></div>
-      <div class="kv"><span class="k">Active customers</span><span class="v" id="sel-total-active" title="Unique customers with all-active status">—</span></div>
-      <div class="kv"><span class="k">Active paying this month</span><span class="v" id="sel-active-count">—</span></div>
-      <div class="kv"><span class="k">At risk (problem accounts)</span><span class="v red" id="sel-problem">—</span></div>
-    </div>
-    <!-- At-risk bar chart card -->
+    <!-- At-risk customer list -->
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
         <div class="card-title" style="color:var(--text);margin-bottom:0">Revenue at risk</div>
         <span style="font-size:20px;font-weight:700;color:var(--red)" id="risk-amt">—</span>
       </div>
-      <div id="risk-bars" style="display:flex;align-items:flex-end;gap:3px;height:64px;margin-bottom:8px"></div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:10px">
-        <span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span>
-        <span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span>
-      </div>
+      <div id="risk-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;max-height:190px;overflow-y:auto"></div>
       <div class="kv" style="border-top:0.5px solid var(--border2);padding-top:8px">
         <span class="k">Past due</span><span class="v" id="risk-pastdue" style="color:var(--red)">—</span>
       </div>
@@ -1024,14 +1075,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
         <div style="font-size:11px;color:var(--text3);margin-top:2px" id="vol-pct"></div>
       </div>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:10px;background:var(--bg2);border-radius:var(--r);padding:.5rem .75rem;align-items:center;justify-content:space-between">
-      <div style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:5px">
-        <span style="width:7px;height:7px;border-radius:50%;background:#E24B4A;flex-shrink:0"></span>Refunds
-      </div>
-      <span style="font-size:13px;font-weight:500;color:var(--red)" id="vol-refunds">—</span>
-      <div style="flex:1;margin:0 8px;height:5px;background:var(--bg);border-radius:3px;overflow:hidden">
-        <div id="vol-bar-refunds-mini" style="height:100%;width:0%;background:#E24B4A;border-radius:3px;transition:width .4s"></div>
-      </div>
+    <div style="display:flex;margin-bottom:10px;background:var(--bg2);border-radius:var(--r);padding:.5rem .75rem;align-items:center;justify-content:flex-end">
       <span style="font-size:11px;color:var(--text3)" id="vol-net-lbl">Net: —</span>
     </div>
     <div style="display:flex;flex-direction:column;gap:7px">
@@ -1177,7 +1221,6 @@ function setMonth(i){{
   for(let c=0;c<12;c++){{const el=document.getElementById("mp"+c);if(el)el.classList.toggle("active",c===mi);}}
   const yr=document.getElementById("mpyr");if(yr)yr.classList.toggle("active",isYr);
   if(document.getElementById("cmp-title")) document.getElementById("cmp-title").textContent="Expected vs Collected — "+label;
-  if(document.getElementById("sel-title")) document.getElementById("sel-title").textContent=label;
   if(document.getElementById("tbl-title")) document.getElementById("tbl-title").textContent=isYr?"All customers":"Customers — "+label;
   if(document.getElementById("tbl-hint")) document.getElementById("tbl-hint").textContent=isYr?"Showing all customers — Jan–Dec 2026":"Customers with expected revenue in "+label;
   updateAll();
@@ -1197,7 +1240,6 @@ function updateVolCard(){{
   document.getElementById("vol-credits").textContent=r>0?"-"+fmtS(r):"—";
   document.getElementById("vol-net").textContent=c>0?fmt(c):"—";
   document.getElementById("vol-pct").textContent=b>0?((c/b)*100).toFixed(1)+"% collected":"";
-  document.getElementById("vol-refunds").textContent=r>0?"-"+fmtS(r):"—";
   document.getElementById("vol-net-lbl").textContent=n>0?"Net: "+fmtS(n):(r>0?"Net: "+fmtS(n):"");
   const maxW=b||1;
   document.getElementById("vol-bar-gross").style.width="100%";
@@ -1206,9 +1248,6 @@ function updateVolCard(){{
   document.getElementById("vol-bar-credits-lbl").textContent=r>0?"-"+fmtS(r):"—";
   document.getElementById("vol-bar-net").style.width=Math.min(100,(c/maxW)*100).toFixed(1)+"%";
   document.getElementById("vol-bar-net-lbl").textContent=c>0?fmtS(c):"—";
-  const refPct=b>0?Math.min(100,(r/b)*100).toFixed(1):0;
-  if(document.getElementById("vol-bar-refunds-mini"))
-    document.getElementById("vol-bar-refunds-mini").style.width=refPct+"%";
 }}
 
 function updateAll(){{
@@ -1220,44 +1259,32 @@ function updateAll(){{
 }}
 
 function updateSelCard(){{
-  const all=D;
-  const problems=all.filter(r=>r[1]==="Past due"||r[1]==="Unpaid");
-  let expected,activeCount,problemAmt;
-  if(mi===-1){{
-    expected=MONTHS.reduce((s,_,i)=>s+expectedForMonth(i),0);
-    activeCount=D.filter(r=>r[1]==="Active"&&r[4].some(v=>v>0)).length;
-    problemAmt=problems.reduce((s,r)=>s+r[4].reduce((a,v)=>a+v,0),0);
-  }}else{{
-    expected=expectedForMonth(mi);
-    activeCount=D.filter(r=>r[1]==="Active"&&r[4][mi]>0).length;
-    problemAmt=problems.reduce((s,r)=>s+r[4][mi],0);
-  }}
-  const totalActive=D.filter(r=>r[1]==="Active").length;
-  document.getElementById("sel-total-active").textContent=totalActive+" customers";
-  document.getElementById("sel-expected").textContent=expected>0?fmt(expected):"—";
-  document.getElementById("sel-active-count").textContent=activeCount+" customers";
-  // At-risk calculations
+  // Revenue at risk: Past due / Unpaid customers, amount for the selected
+  // month (or summed across the year when "Year" is selected) — uses the
+  // same month-indexed proj array (r[4]) as Expected, so the total here
+  // always matches what's actually at risk in that period.
+  const amtFor=r=>mi===-1?r[4].reduce((a,v)=>a+v,0):r[4][mi];
   const pastDueRows=D.filter(r=>r[1]==="Past due");
   const unpaidRows=D.filter(r=>r[1]==="Unpaid");
-  const pdAmt=pastDueRows.reduce((s,r)=>s+(r[2]==="Annual"?r[3]/12:r[3]),0);
-  const unpAmt=unpaidRows.reduce((s,r)=>s+(r[2]==="Annual"?r[3]/12:r[3]),0);
-  document.getElementById("sel-problem").textContent=(pdAmt+unpAmt)>0?"-"+fmtS(pdAmt+unpAmt):problems.length+" accounts";
-  // Current-month at-risk from PROBLEM_TOTALS (matches projection logic)
-  const riskCur=pdAmt+unpAmt; // total monthly MRR at risk = matches breakdown
+  const pdAmt=pastDueRows.reduce((s,r)=>s+amtFor(r),0);
+  const unpAmt=unpaidRows.reduce((s,r)=>s+amtFor(r),0);
+  const riskCur=pdAmt+unpAmt;
   if(document.getElementById("risk-amt")){{
     document.getElementById("risk-amt").textContent=riskCur>0?"-"+fmtS(riskCur):"—";
-    // Draw monthly bar chart
-    const maxV=Math.max(...PROBLEM_TOTALS,1);
-    document.getElementById("risk-bars").innerHTML=PROBLEM_TOTALS.map((v,i)=>{{
-      const h=Math.round((v/maxV)*56)+4;
-      const isActive=i===mi;
-      const clr=isActive?"var(--red)":"rgba(220,38,38,0.3)";
-      const lbl=fmtS(v);
-      return `<div title="${{MO_SHORT[i]}}: ${{lbl}}" style="flex:1;height:${{h}}px;background:${{clr}};border-radius:3px 3px 0 0;cursor:default;position:relative;transition:all .2s">
-        ${{isActive?`<span style="position:absolute;bottom:calc(100% + 2px);left:50%;transform:translateX(-50%);font-size:9px;color:var(--red);white-space:nowrap">${{lbl}}</span>`:""}}</div>`;
-    }}).join("");
-    document.getElementById("risk-pastdue").textContent=pdAmt>0?fmtS(pdAmt)+" · "+pastDueRows.length+" cust.":"—";
-    document.getElementById("risk-unpaid").textContent=unpAmt>0?fmtS(unpAmt)+" · "+unpaidRows.length+" cust.":"—";
+    const riskRows=[...pastDueRows,...unpaidRows]
+      .map(r=>({{name:r[0],status:r[1],amt:amtFor(r)}}))
+      .filter(x=>x.amt>0)
+      .sort((a,b)=>b.amt-a.amt);
+    document.getElementById("risk-list").innerHTML=riskRows.length?riskRows.map(x=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${{x.name}}">${{x.name}}</span>
+        <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          <span class="badge ${{BC[x.status]||"b-unpaid"}}">${{x.status}}</span>
+          <span style="font-size:12px;color:var(--red);font-weight:500;min-width:64px;text-align:right">${{fmtS(x.amt)}}</span>
+        </span>
+      </div>`).join(""):'<div style="font-size:12px;color:var(--text3)">No accounts at risk this period</div>';
+    document.getElementById("risk-pastdue").textContent=pdAmt>0?fmtS(pdAmt)+" · "+pastDueRows.filter(r=>amtFor(r)>0).length+" cust.":"—";
+    document.getElementById("risk-unpaid").textContent=unpAmt>0?fmtS(unpAmt)+" · "+unpaidRows.filter(r=>amtFor(r)>0).length+" cust.":"—";
   }}
 }}
 
@@ -1602,14 +1629,18 @@ if __name__ == "__main__":
 
     totals, active_tot, problem_tot = compute_totals(rows)
 
-    # Metrics now computed inside fetch_invoice_data() — skip legacy call
-    metrics = {}  # populated in step 5
+    # MRR/ARR derived directly from customer rows (active subs only) — see
+    # _compute_mrr_from_rows() docstring for why this replaced the old
+    # invoice-recency-based calculation.
+    metrics = _compute_mrr_from_rows(rows)
+    print(f"  MRR ${metrics['total_mrr']:,.0f}  (monthly ${metrics['monthly_mrr']:,.2f}  "
+          f"+ annual equiv ${metrics['annual_mrr']:,.2f})")
 
     # ── 4. Recent invoices + collected cache ─────────────────────────────────
     print("\n[4/6] Fetching all 2026 invoice data...")
     today_invoices = []  # populated inside fetch_invoice_data below
     try:
-        (metrics, monthly_collected, monthly_billed,
+        (_legacy_metrics, monthly_collected, monthly_billed,
          monthly_credits, monthly_refunds, monthly_net,
          today_invoices_raw) = fetch_invoice_data()
         print("  OK collected: " + str(["$"+f"{round(x):,}" for x in monthly_collected]))
