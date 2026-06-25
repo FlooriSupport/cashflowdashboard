@@ -1,0 +1,54 @@
+name: Update dashboard
+
+on:
+  schedule:
+    - cron: '30 12 * * 1-5'   # 9:30 AM BRT (UTC-3), Mon–Fri
+  workflow_dispatch:            # manual trigger from GitHub UI
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-stripe-5x
+          restore-keys: pip-stripe-
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install "stripe>=5.0.0,<6.0.0"
+          fi
+
+      - name: Fetch Stripe data and regenerate dashboard
+        env:
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+        run: python update_dashboard.py
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git add collected_cache.json 2>/dev/null || true
+          git add volume_cache.json    2>/dev/null || true
+          git add invoice_cache.json   2>/dev/null || true    2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Dashboard updated $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push
