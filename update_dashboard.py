@@ -181,8 +181,10 @@ def build_rows(subs):
     Only USD subscriptions are included in projections.
     Non-USD amounts shown as base_usd=0 but customer still appears.
     """
-    # Group subscriptions by customer ID — keep most severe status
-    priority = {"Past due": 3, "Unpaid": 2, "Cancelled": 1, "Active": 0}
+    # Group subscriptions by customer ID — keep most severe status.
+    # Active must outrank Cancelled: a customer with one active sub and one
+    # old cancelled sub (e.g. plan change/upgrade) is still an active customer.
+    priority = {"Past due": 3, "Unpaid": 2, "Active": 1, "Cancelled": 0}
     customers = {}  # cust_id → dict
 
     for sub in subs:
