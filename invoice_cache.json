@@ -1,0 +1,33 @@
+{
+  "2026-01": {
+    "collected": 28128.44,
+    "billed": 28128.44,
+    "credits": 0.0,
+    "count": 57
+  },
+  "2026-02": {
+    "collected": 31896.65,
+    "billed": 31896.65,
+    "credits": 0.0,
+    "count": 52
+  },
+  "2026-03": {
+    "collected": 30297.15,
+    "billed": 30297.15,
+    "credits": 0.0,
+    "count": 55
+  },
+  "2026-04": {
+    "collected": 27331.99,
+    "billed": 27331.99,
+    "credits": 0.0,
+    "count": 48
+  },
+  "2026-05": {
+    "collected": 31899.9,
+    "billed": 32517.94,
+    "credits": 618.04,
+    "count": 43
+  },
+  "__version__": "v1"
+}
