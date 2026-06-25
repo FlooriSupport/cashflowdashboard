@@ -148,7 +148,7 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: Jun 25, 2026 at 13:16 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: Jun 25, 2026 at 13:31 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <div class="tabs" style="margin-bottom:0">
@@ -191,17 +191,17 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
   <div class="metrics">
     <div class="mc">
       <div class="lbl">Total MRR</div>
-      <div class="val" id="mc-mrr" style="color:var(--green)">—</div>
-      <div class="sub" id="mc-mrr-sub">—</div>
+      <div class="val" style="color:var(--green)">$13,307</div>
+      <div class="sub">45 active subscriptions</div>
     </div>
     <div class="mc">
       <div class="lbl">Monthly revenue</div>
-      <div class="val" id="mc-monthly">—<span style="font-size:13px;font-weight:400;color:var(--text3)">/mo</span></div>
-      <div class="sub" id="mc-monthly-sub">—</div>
+      <div class="val">$12,416<span style="font-size:13px;font-weight:400;color:var(--text3)">/mo</span></div>
+      <div class="sub">39 monthly subscribers</div>
     </div>
     <div class="mc">
       <div class="lbl">ARR</div>
-      <div class="val" id="mc-arr">—<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
+      <div class="val">$159,681<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
       <div class="sub">6 annual + 39 monthly plans</div>
     </div>
     <div class="mc">
@@ -352,6 +352,7 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
           <th style="width:11%;cursor:pointer;user-select:none" onclick="setSortCol(7)">Type <span id="sh7"></span></th>
           <th style="width:11%;cursor:pointer;user-select:none" onclick="setSortCol(1)">Status <span id="sh1"></span></th>
           <th style="width:14%;cursor:pointer;user-select:none" onclick="setSortCol(5)">Next invoice <span id="sh5"></span></th>
+          <th style="width:12%;cursor:pointer;user-select:none" class="r col-annual" onclick="setSortCol(8)">Annual total <span id="sh8"></span></th>
           <th style="width:12%;cursor:pointer;user-select:none" class="r" onclick="setSortCol(3)">Base amount <span id="sh3"></span></th>
           <th style="width:8%;cursor:pointer;user-select:none" onclick="setSortCol(2)">Interval <span id="sh2"></span></th>
         </tr></thead>
@@ -446,6 +447,7 @@ function setMonth(i){
   if(document.getElementById("sel-title")) document.getElementById("sel-title").textContent=label;
   if(document.getElementById("tbl-title")) document.getElementById("tbl-title").textContent=isYr?"All customers":"Customers — "+label;
   if(document.getElementById("tbl-hint")) document.getElementById("tbl-hint").textContent=isYr?"Showing all customers — Jan–Dec 2026":"Customers with expected revenue in "+label;
+  document.querySelectorAll(".col-annual").forEach(el=>el.style.display=isYr?"none":"");
   updateAll();
 }
 
@@ -478,35 +480,8 @@ function updateVolCard(){
     document.getElementById("vol-bar-refunds-mini").style.width=refPct+"%";
 }
 
-function updateMetricCards(){
-  const activeSubs=D.filter(r=>r[1]==="Active");
-  const annualSubs=activeSubs.filter(r=>r[2]==="Annual");
-  const monthlySubs=activeSubs.filter(r=>r[2]!=="Annual");
-  let mrr=0,monthlyRev=0;
-  annualSubs.forEach(r=>{mrr+=r[3]/12;});
-  monthlySubs.forEach(r=>{
-    const val=mi>=0?(r[4][mi]>0?r[4][mi]:r[3]):r[3];
-    mrr+=val; monthlyRev+=val;
-  });
-  mrr=Math.round(mrr); monthlyRev=Math.round(monthlyRev);
-  const arr=Math.round(mrr*12);
-  const mrrEl=document.getElementById("mc-mrr");
-  if(mrrEl) mrrEl.textContent=fmt(mrr);
-  const mrrSub=document.getElementById("mc-mrr-sub");
-  if(mrrSub) mrrSub.textContent=activeSubs.length+" active subscriptions";
-  const moEl=document.getElementById("mc-monthly");
-  if(moEl) moEl.innerHTML=fmt(monthlyRev)+'<span style="font-size:13px;font-weight:400;color:var(--text3)">/mo</span>';
-  const moSub=document.getElementById("mc-monthly-sub");
-  if(moSub) moSub.textContent=monthlySubs.length+" monthly subscribers";
-  const arrEl=document.getElementById("mc-arr");
-  if(arrEl) arrEl.innerHTML=fmt(arr)+'<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span>';
-  const arrSub=document.getElementById("mc-arr-sub");
-  if(arrSub) arrSub.textContent=annualSubs.length+" annual + "+monthlySubs.length+" monthly plans";
-}
-
 function updateAll(){
   sf=document.getElementById("flt").value;
-  updateMetricCards();
   updateSelCard();
   updateCmpCard();
   updateVolCard();
@@ -690,7 +665,7 @@ function _render(){
   document.getElementById("ct-lbl").textContent=f.length+" customers";
   document.getElementById("tbody").innerHTML=rows.map((r,i)=>{
     const prob=r[1]==="Past due"||r[1]==="Unpaid";
-    const baseAmt=mi>=0?(r[4][mi]>0?r[4][mi]:r[3]):(r[4].reduce((s,v)=>s+v,0)||r[3]);
+    const annualTotal=r[2]==="Annual"?r[3]:r[3]*12;
     const ctry=r[6]||"";
     return `<tr>
       <td style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r[0]}</td>
@@ -698,7 +673,8 @@ function _render(){
       <td>${r[7]?typePill(r[7],""): '<span style="color:var(--text3);font-size:11px">—</span>'}</td>
       <td><span class="badge ${BC[r[1]]||"b-unpaid"}">${r[1]}</span></td>
       <td style="font-size:12px;color:${prob?"var(--red)":"var(--text2)"};font-weight:${prob?500:400}">${r[5]||"—"}</td>
-      <td class="r" style="color:var(--text2);font-variant-numeric:tabular-nums">${baseAmt>0?fmt(baseAmt):"—"}</td>
+      <td class="r col-annual" style="color:var(--text2)">${annualTotal>0?fmt(annualTotal):"—"}</td>
+      <td class="r" style="color:var(--text2)">$${r[3].toLocaleString()}</td>
       <td><span class="freq">${r[2]}</span></td>
     </tr>`;
   }).join("");
