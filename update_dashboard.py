@@ -1040,9 +1040,9 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   <div class="metrics">
     <div class="mc">
       <div class="lbl title-row">MRR
-        <span class="info-btn" tabindex="0" role="button" aria-label="O que é MRR?">
+        <span class="info-btn" tabindex="0" role="button" aria-label="What is MRR?">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
-          <span class="info-tip">Receita recorrente mensal: tudo que a Floori fatura por mês de forma recorrente (planos mensais + equivalente mensal dos planos anuais). É o principal termômetro de saúde do negócio.</span>
+          <span class="info-tip">Monthly recurring revenue: everything Floori bills monthly on a recurring basis (monthly plans + the monthly-equivalent of annual plans). The primary health gauge for the business.</span>
         </span>
       </div>
       <div class="val" style="color:var(--green)">${metrics["total_mrr"]:,.0f}</div>
@@ -1050,9 +1050,9 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     </div>
     <div class="mc">
       <div class="lbl title-row">ARR
-        <span class="info-btn" tabindex="0" role="button" aria-label="O que é ARR?">
+        <span class="info-btn" tabindex="0" role="button" aria-label="What is ARR?">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
-          <span class="info-tip">Receita recorrente anual: o MRR atual projetado para 12 meses. Usado para medir o tamanho do negócio e comparar crescimento ano a ano.</span>
+          <span class="info-tip">Annual recurring revenue: current MRR projected over 12 months. Used to gauge business size and compare year-over-year growth.</span>
         </span>
       </div>
       <div class="val">${metrics["total_mrr"]*12:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
@@ -1060,9 +1060,9 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     </div>
     <div class="mc">
       <div class="lbl title-row">Recent collected
-        <span class="info-btn" tabindex="0" role="button" aria-label="O que é Recent collected?">
+        <span class="info-btn" tabindex="0" role="button" aria-label="What is Recent collected?">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
-          <span class="info-tip">Valor efetivamente recebido dos clientes nas últimas 24 horas, já convertido para dólar. Mostra o caixa que entrou de fato — diferente da receita apenas esperada.</span>
+          <span class="info-tip">Amount actually received from customers in the last 24 hours, already converted to USD. Shows cash that actually came in — as opposed to revenue that's merely expected.</span>
         </span>
       </div>
       <div class="val" style="color:{'var(--green)' if today_total>0 else 'var(--text3)'}">{today_total_fmt}</div>
@@ -1075,9 +1075,9 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     <div class="card">
       <div class="title-row" style="margin-bottom:14px">
         <div class="card-title" style="color:var(--text);margin-bottom:0" id="cmp-title">Expected vs Collected</div>
-        <span class="info-btn" tabindex="0" role="button" aria-label="O que é Expected vs Collected?">
+        <span class="info-btn" tabindex="0" role="button" aria-label="What is Expected vs Collected?">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
-          <span class="info-tip">Compara quanto era esperado receber no período selecionado com quanto foi de fato cobrado e quanto voltou em reembolsos. A diferença sinaliza inadimplência, atraso de cobrança ou cancelamentos.</span>
+          <span class="info-tip">Compares how much was expected to be received in the selected period against how much was actually charged and how much came back as refunds. The gap signals delinquency, billing delays, or cancellations.</span>
         </span>
       </div>
       <div class="cmp-bars">
@@ -1110,9 +1110,9 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
         <div class="title-row">
           <div class="card-title" style="color:var(--text);margin-bottom:0">Revenue at risk</div>
-          <span class="info-btn" tabindex="0" role="button" aria-label="O que é Revenue at risk?">
+          <span class="info-btn" tabindex="0" role="button" aria-label="What is Revenue at risk?">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
-            <span class="info-tip">Soma dos valores de clientes com cobrança atrasada (Past due) ou não paga (Unpaid) no período selecionado. É o valor que pode não entrar no caixa se a cobrança não for resolvida.</span>
+            <span class="info-tip">Sum of amounts owed by customers with delayed (Past due) or unpaid (Unpaid) billing in the selected period. This is the amount that may not reach cash if the billing issue isn't resolved.</span>
           </span>
         </div>
         <span style="font-size:20px;font-weight:700;color:var(--red)" id="risk-amt">—</span>
@@ -1129,9 +1129,9 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
 
   <div class="card" style="margin-bottom:1.5rem">
     <div class="card-title title-row" style="color:var(--text)">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h · USD equiv.)</span>
-      <span class="info-btn" tabindex="0" role="button" aria-label="O que é Recent payments?">
+      <span class="info-btn" tabindex="0" role="button" aria-label="What is Recent payments?">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
-        <span class="info-tip">Lista dos pagamentos confirmados pelos clientes nas últimas 24 horas, já convertidos para dólar.</span>
+        <span class="info-tip">List of payments confirmed by customers in the last 24 hours, already converted to USD.</span>
       </span>
     </div>
     {"<div class='inv-wrap'><table class='inv-table'><thead><tr><th>Customer</th><th class='r'>Amount</th><th>Time</th></tr></thead><tbody>" + today_rows_html + "</tbody></table></div>" if today_invoices else "<div class='empty'>No payments in the last 24h</div>"}
@@ -1144,18 +1144,18 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     <div class="analytics-grid" style="margin-bottom:1.5rem">
       <div class="card">
         <div class="card-title title-row" style="color:var(--text)">Customers by type
-          <span class="info-btn" tabindex="0" role="button" aria-label="O que é Customers by type?">
+          <span class="info-btn" tabindex="0" role="button" aria-label="What is Customers by type?">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
-            <span class="info-tip">Como a base de clientes ativos se distribui por tipo de negócio (varejista, distribuidor etc). Mostra de onde vem a maior parte da carteira.</span>
+            <span class="info-tip">How the active customer base breaks down by business type (retailer, distributor, etc.). Shows where most of the portfolio comes from.</span>
           </span>
         </div>
         <div id="pie-count" style="display:flex;flex-direction:column;align-items:center;gap:16px"></div>
       </div>
       <div class="card">
         <div class="card-title title-row" style="color:var(--text)">MRR by type
-          <span class="info-btn" tabindex="0" role="button" aria-label="O que é MRR by type?">
+          <span class="info-btn" tabindex="0" role="button" aria-label="What is MRR by type?">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
-            <span class="info-tip">Quanto cada tipo de cliente contribui para a receita recorrente mensal. Mostra quais segmentos geram mais receita — não necessariamente os com mais clientes.</span>
+            <span class="info-tip">How much each customer type contributes to monthly recurring revenue. Shows which segments generate the most revenue — not necessarily the ones with the most customers.</span>
           </span>
         </div>
         <div id="pie-mrr" style="display:flex;flex-direction:column;align-items:center;gap:16px"></div>
@@ -1164,9 +1164,9 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
 
     <div class="card" style="margin-bottom:1.5rem">
       <div class="card-title title-row" style="color:var(--text)">Revenue &amp; customers by country
-        <span class="info-btn" tabindex="0" role="button" aria-label="O que é Revenue & customers by country?">
+        <span class="info-btn" tabindex="0" role="button" aria-label="What is Revenue & customers by country?">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
-          <span class="info-tip">Receita recorrente mensal e número de clientes por país. Ajuda a identificar concentração geográfica, exposição cambial e oportunidades de expansão.</span>
+          <span class="info-tip">Monthly recurring revenue and customer count by country. Helps identify geographic concentration, currency exposure, and expansion opportunities.</span>
         </span>
       </div>
       <div style="overflow-x:auto;border-radius:var(--r);border:0.5px solid var(--border2)">
@@ -1191,20 +1191,20 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
       <div class="tbl-header">
         <div class="title-row">
           <div class="card-title" style="color:var(--text);margin-bottom:0" id="tbl-title">All customers</div>
-          <span class="info-btn" tabindex="0" role="button" aria-label="O que é All customers?">
+          <span class="info-btn" tabindex="0" role="button" aria-label="What is All customers?">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
-            <span class="info-tip">Lista completa de clientes com status de cobrança, valor, país e tipo. Use os filtros nas colunas para investigar segmentos específicos.</span>
+            <span class="info-tip">Full customer list with billing status, amount, country, and type. Use the column filters to investigate specific segments.</span>
           </span>
         </div>
         <div class="tbl-controls">
-          <button class="icon-btn" onclick="clearTableFilters()">Limpar filtros</button>
+          <button class="icon-btn" onclick="clearTableFilters()">Clear filters</button>
           <button class="icon-btn" onclick="exportCustomers()">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0-2.5-2.5M8 10l2.5-2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13h10" stroke-linecap="round"/></svg>
             Export CSV
           </button>
         </div>
       </div>
-      <p id="tbl-hint" style="font-size:12px;color:var(--text3);margin-bottom:10px"></p>
+      <p id="tbl-hint" style="font-size:12px;color:var(--text3);margin-bottom:10px">Showing all customers — independent of the month selected above.</p>
       <div class="tbl-wrap">
         <table>
           <thead>
@@ -1218,22 +1218,22 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
               <th style="width:8%;cursor:pointer;user-select:none" onclick="setSortCol(2)">Interval <span id="sh2"></span></th>
             </tr>
             <tr class="filter-row">
-              <td><input id="f-customer" placeholder="Filtrar cliente…" oninput="renderTable()"></td>
-              <td><select id="f-country" onchange="renderTable()"><option value="">Todos</option></select></td>
-              <td><select id="f-type" onchange="renderTable()"><option value="">Todos</option></select></td>
+              <td><input id="f-customer" placeholder="Filter customer…" oninput="renderTable()"></td>
+              <td><select id="f-country" onchange="renderTable()"><option value="">All</option></select></td>
+              <td><select id="f-type" onchange="renderTable()"><option value="">All</option></select></td>
               <td>
                 <select id="f-status" onchange="renderTable()">
-                  <option value="">Todos</option>
+                  <option value="">All</option>
                   <option value="Active">Active</option>
                   <option value="Past due">Past due</option>
                   <option value="Unpaid">Unpaid</option>
                 </select>
               </td>
-              <td><input id="f-invoice" placeholder="ex: Jun" oninput="renderTable()"></td>
-              <td><input id="f-amount-min" type="number" placeholder="Mín. US$" oninput="renderTable()"></td>
+              <td><input id="f-invoice" placeholder="e.g. Jun" oninput="renderTable()"></td>
+              <td><input id="f-amount-min" type="number" placeholder="Min US$" oninput="renderTable()"></td>
               <td>
                 <select id="f-interval" onchange="renderTable()">
-                  <option value="">Todos</option>
+                  <option value="">All</option>
                   <option value="Monthly">Monthly</option>
                   <option value="Annual">Annual</option>
                 </select>
@@ -1244,9 +1244,6 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
         </table>
       </div>
       <div class="pag">
-        <button id="prev-pg" onclick="go(-1)" disabled>← Prev</button>
-        <span id="pg-info">Page 1 of 1</span>
-        <button id="next-pg" onclick="go(1)">Next →</button>
         <span id="ct-lbl"></span>
       </div>
     </div>
@@ -1284,8 +1281,9 @@ function setMonth(i){{
   for(let c=0;c<12;c++){{const el=document.getElementById("mp"+c);if(el)el.classList.toggle("active",c===mi);}}
   const yr=document.getElementById("mpyr");if(yr)yr.classList.toggle("active",isYr);
   if(document.getElementById("cmp-title")) document.getElementById("cmp-title").textContent="Expected vs Collected — "+label;
-  if(document.getElementById("tbl-title")) document.getElementById("tbl-title").textContent=isYr?"All customers":"Customers — "+label;
-  if(document.getElementById("tbl-hint")) document.getElementById("tbl-hint").textContent=isYr?"Showing all customers — Jan–Dec 2026":"Customers with expected revenue in "+label;
+  // tbl-title/tbl-hint are intentionally NOT updated here: the Analytics
+  // customer listing always shows every customer regardless of the
+  // selected month — it is not scoped to mi.
   updateAll();
 }}
 
@@ -1477,9 +1475,9 @@ function populateFilterOptions(){{
   const countries=[...new Set(D.map(r=>r[6]).filter(Boolean))].sort((a,b)=>ctryName(a).localeCompare(ctryName(b)));
   const types=[...new Set(D.map(r=>(r[7]||"").trim()).filter(Boolean))].sort();
   const cSel=document.getElementById("f-country");
-  if(cSel) cSel.innerHTML='<option value="">Todos</option>'+countries.map(c=>`<option value="${{c}}">${{ctryName(c)}}</option>`).join("");
+  if(cSel) cSel.innerHTML='<option value="">All</option>'+countries.map(c=>`<option value="${{c}}">${{ctryName(c)}}</option>`).join("");
   const tSel=document.getElementById("f-type");
-  if(tSel) tSel.innerHTML='<option value="">Todos</option>'+types.map(t=>`<option value="${{t}}">${{t}}</option>`).join("")+'<option value="__none__">Sem tipo</option>';
+  if(tSel) tSel.innerHTML='<option value="">All</option>'+types.map(t=>`<option value="${{t}}">${{t}}</option>`).join("")+'<option value="__none__">No type</option>';
 }}
 
 function clearTableFilters(){{
@@ -1499,13 +1497,9 @@ function getFiltered(){{
   const fMin=fMinRaw!==undefined&&fMinRaw!==""?parseFloat(fMinRaw):NaN;
   const fInterval=document.getElementById("f-interval")?.value||"";
 
-  // Month view: show customers with a projected amount in this month.
-  // proj[mi] already encodes the right months per subscription (every
-  // month for Monthly, just the renewal month for Annual) — next_invoice
-  // is a single forward-looking date and can't represent a recurring
-  // monthly schedule, so it's only used for display, not filtering.
-  const byM=mi>=0?D.filter(r=>r[4][mi]>0):D;
-  const filtered=byM.filter(r=>{{
+  // Customer listing is month-independent by design: it always shows the
+  // full customer base regardless of the selected month/Year toggle above.
+  const filtered=D.filter(r=>{{
     if(fCust&&!r[0].toLowerCase().includes(fCust)) return false;
     if(fCtry&&r[6]!==fCtry) return false;
     if(fType){{
@@ -1528,16 +1522,12 @@ function getFiltered(){{
   }});
 }}
 
-function renderTable(){{pg=1;_render();}}
-function go(d){{const tp=Math.ceil(getFiltered().length/PS);pg=Math.max(1,Math.min(tp,pg+d));_render();}}
+function renderTable(){{_render();}}
 const TYPE_COLORS={{"Retailer":"#639922","Manufacturer":"#854F0B","Ecommerce":"#635BFF","Distributor":"#A32D2D","Installer":"#185FA5"}};
 function typePill(t,n){{const c=TYPE_COLORS[t]||"#888780";return`<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 7px;border-radius:20px;background:${{c}}22;color:${{c}}">${{t}}${{n?'<span style="opacity:.7">'+n+'</span>':''}}</span>`;}}
 
 function _render(){{
-  const f=getFiltered(),tp=Math.max(1,Math.ceil(f.length/PS)),rows=f.slice((pg-1)*PS,pg*PS);
-  document.getElementById("pg-info").textContent=`Page ${{pg}} of ${{tp}}`;
-  document.getElementById("prev-pg").disabled=pg<=1;
-  document.getElementById("next-pg").disabled=pg>=tp;
+  const f=getFiltered(),rows=f;
   document.getElementById("ct-lbl").textContent=f.length+" customers";
   document.getElementById("tbody").innerHTML=rows.map((r,i)=>{{
     const prob=r[1]==="Past due"||r[1]==="Unpaid";
