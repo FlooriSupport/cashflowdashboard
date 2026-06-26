@@ -105,15 +105,27 @@ def fetch_invoice_avg_by_sub(n=3):
 
 def _compute_projections(sub_dict, amount_usd, interval):
     """
-    Returns list of 8 floats (May–Dec 2026).
-    Monthly subs: projected for each month their billing date falls in window.
-    Annual subs:  projected for the renewal month within the window.
-                  Checks both current_period_start (already billed this year)
-                  and current_period_end (next renewal), whichever is in window.
+    Returns (proj, proj_mrr) — two 12-float arrays (Jan–Dec 2026).
+
+    proj: calendar-accurate billing projection, used by the customer table's
+    month filter ("when is this customer actually invoiced"). Monthly subs
+    are forward-filled into every month they bill in; Annual subs are
+    placed as a single lump sum in their renewal month (checks both
+    current_period_start and current_period_end, whichever falls in window).
+
+    proj_mrr: smoothed monthly-equivalent, used for the "Expected" KPI so it
+    tracks MRR's own methodology (_compute_mrr_from_rows: annual_arr/12 +
+    monthly, every month) instead of spiking only in an annual customer's
+    renewal month. Monthly subs use the same values as proj (already one
+    consistent monthly amount). Annual subs get amount_usd/12 spread across
+    all 12 months instead of one spike — this also fixes annual subs whose
+    renewal lands outside the 2026 window (e.g. anchored in both 2025 and
+    2027) contributing nothing to proj at all despite being fully active and
+    counted in MRR.
     """
     proj = [0.0] * 12
     if amount_usd <= 0:
-        return proj
+        return proj, proj[:]
 
     items = sub_dict.get("items", {}).get("data", [])
     ts_end   = None
@@ -125,6 +137,7 @@ def _compute_projections(sub_dict, amount_usd, interval):
         ts_end = sub_dict.get("billing_cycle_anchor")
 
     if interval == "Annual":
+        proj_mrr = [round(amount_usd / 12, 2)] * 12
         # Try current_period_start first (sub was already billed within our window)
         placed = False
         if ts_start:
@@ -139,9 +152,10 @@ def _compute_projections(sub_dict, amount_usd, interval):
             mi = _month_index(dt_end)
             if 0 <= mi <= 11:
                 proj[mi] = round(amount_usd, 2)
+        return proj, proj_mrr
     else:
         if not ts_end:
-            return proj
+            return proj, proj[:]
         # Monthly: advance until first billing date within window
         dt = datetime.fromtimestamp(int(ts_end), tz=timezone.utc)
         # Go back to find first billing in 2026
@@ -156,7 +170,7 @@ def _compute_projections(sub_dict, amount_usd, interval):
                 proj[mi] = round(amount_usd, 2)
             dt = _add_months(dt, 1)
 
-    return proj
+    return proj, proj[:]
 
 
 # ── Country name → ISO 2-letter code normalization ──────────────────────────
@@ -315,7 +329,7 @@ def build_rows(subs, invoice_avg_by_sub=None):
         except Exception:
             pass
 
-        proj = _compute_projections(sub_dict, amount_usd, interval)
+        proj, proj_mrr = _compute_projections(sub_dict, amount_usd, interval)
 
         if cust_id not in customers:
             customers[cust_id] = {
@@ -337,7 +351,7 @@ def build_rows(subs, invoice_avg_by_sub=None):
         # Prefer the interval of a currently-billing sub over a cancelled one
         if label != "Cancelled":
             ex["interval"] = interval
-        ex["subs"].append({"label": label, "amount_usd": amount_usd, "proj": proj})
+        ex["subs"].append({"label": label, "amount_usd": amount_usd, "proj": proj, "proj_mrr": proj_mrr})
 
     rows = []
     for info in customers.values():
@@ -347,8 +361,10 @@ def build_rows(subs, invoice_avg_by_sub=None):
 
         amount_usd = round(sum(s["amount_usd"] for s in use), 2)
         proj = [0.0] * 12
+        proj_mrr = [0.0] * 12
         for s in use:
             proj = [round(a + b, 2) for a, b in zip(proj, s["proj"])]
+            proj_mrr = [round(a + b, 2) for a, b in zip(proj_mrr, s["proj_mrr"])]
         active_usd = round(sum(s["amount_usd"] for s in use if s["label"] == "Active"), 2)
 
         rows.append([
@@ -356,11 +372,12 @@ def build_rows(subs, invoice_avg_by_sub=None):
             info["status"],             # 1
             info["interval"],           # 2
             amount_usd,                 # 3 total (non-cancelled subs only; falls back to all if customer has none)
-            proj,                       # 4
+            proj,                       # 4 calendar-accurate billing projection (table month filter)
             info["next_inv"],           # 5
             info.get("country",""),     # 6
             info.get("cust_type",""),   # 7
             active_usd,                 # 8 active-only amount (for MRR accuracy)
+            proj_mrr,                   # 9 smoothed monthly-equivalent projection (Expected KPI, aligned with MRR)
         ])
 
     rows.sort(key=lambda r: r[3], reverse=True)
@@ -847,7 +864,7 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .mc .sub{{font-size:11px;color:var(--text3);margin-top:5px}}
 .charts-row{{display:grid;grid-template-columns:3fr 2fr;gap:12px;margin-bottom:1.5rem}}
 .card{{background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--rl);padding:1.1rem 1.25rem}}
-.card-title{{font-size:12px;font-weight:600;color:var(--text);text-transform:uppercase;letter-spacing:.04em;margin-bottom:14px}}
+.card-title{{font-size:15px;font-weight:700;color:var(--text);margin-bottom:14px}}
 /* bar chart */
 .bchart{{display:flex;gap:5px;align-items:flex-end;height:130px;margin-bottom:4px}}
 .bcol{{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:2px;cursor:pointer;transition:opacity .15s}}
@@ -996,7 +1013,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     <div class="mc">
       <div class="lbl">MRR</div>
       <div class="val" style="color:var(--green)">${metrics["total_mrr"]:,.0f}</div>
-      <div class="sub">{metrics["active_subs"]} active subscriptions</div>
+      <div class="sub">${metrics["monthly_mrr"]:,.0f} monthly + ${metrics["annual_mrr"]:,.0f} annual-equiv</div>
     </div>
     <div class="mc">
       <div class="lbl">ARR</div>
@@ -1294,8 +1311,11 @@ const TODAY_MI={today_mi}; // current month index, computed at generation time
 function expectedForMonth(i){{
   // Past/current months: all subs (they were expected to bill then)
   // Future months: active only (what we can realistically expect)
+  // Uses r[9] (smoothed monthly-equivalent), not r[4] (calendar-accurate
+  // billing spike), so Expected tracks MRR's annual/12 + monthly
+  // methodology instead of jumping whenever an annual renewal lands.
   const subs=i<=TODAY_MI?D:D.filter(r=>r[1]==="Active");
-  return subs.reduce((s,r)=>s+r[4][i],0);
+  return subs.reduce((s,r)=>s+r[9][i],0);
 }}
 function renderExpectedChart(){{
   const mt=MONTHS.map((_,i)=>expectedForMonth(i));
