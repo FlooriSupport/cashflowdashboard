@@ -1,33 +1,1055 @@
 {
   "2026-01": {
-    "collected": 28128.44,
-    "billed": 28128.44,
+    "collected": 28135.59,
+    "billed": 28135.59,
     "credits": 0.0,
-    "count": 57
+    "count": 57,
+    "customers": [
+      {
+        "name": "Pravada",
+        "amount": 599.0
+      },
+      {
+        "name": "Alfombras Hamid",
+        "amount": 56.81
+      },
+      {
+        "name": "Schmidt-Ausstatter",
+        "amount": 4040.0
+      },
+      {
+        "name": "Douglas Wagoner",
+        "amount": 49.0
+      },
+      {
+        "name": "The Garage Floor Company",
+        "amount": 355.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Mike McDermott",
+        "amount": 49.0
+      },
+      {
+        "name": "Acsento",
+        "amount": 416.0
+      },
+      {
+        "name": "LA DISTRIBUIDORA DE CASIMIRES S.A DE C.V.",
+        "amount": 295.0
+      },
+      {
+        "name": "MARBLELIFE",
+        "amount": 249.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Adriana reis",
+        "amount": 156.25
+      },
+      {
+        "name": "Transylvania Concrete Coatings",
+        "amount": 199.0
+      },
+      {
+        "name": "ViaStar",
+        "amount": 350.0
+      },
+      {
+        "name": "Rhino Linings Trusted Premium Protective Coatings",
+        "amount": 1242.42
+      },
+      {
+        "name": "Exclusive Rugs By Bijan Pty Ltd.",
+        "amount": 207.0
+      },
+      {
+        "name": "Stauf USA",
+        "amount": 299.0
+      },
+      {
+        "name": "Triff",
+        "amount": 400.0
+      },
+      {
+        "name": "IPEK Warenhandelsgesellschaft mbH",
+        "amount": 175.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Lance Jensen",
+        "amount": 49.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Best Wool Carpets b.v.",
+        "amount": 2982.49
+      },
+      {
+        "name": "Originate",
+        "amount": 403.35
+      },
+      {
+        "name": "Alexander Marck",
+        "amount": 499.0
+      },
+      {
+        "name": "Leaf Home Garage Flooring",
+        "amount": 300.0
+      },
+      {
+        "name": "Jonathan  Reeves",
+        "amount": 300.0
+      },
+      {
+        "name": "The Pebble Mix Company Pty Ltd",
+        "amount": 1005.67
+      },
+      {
+        "name": "bruna a albuquerque",
+        "amount": 1165.54
+      },
+      {
+        "name": "Artloop Tekstil Dekorasyon San. ve D\u0131\u015f. Tic. LTD. \u015eT\u0130",
+        "amount": 498.75
+      },
+      {
+        "name": "Pro Garage Renovations",
+        "amount": 1440.0
+      },
+      {
+        "name": "Final Specs Flooring LLC",
+        "amount": 355.0
+      },
+      {
+        "name": "Global Distribui\u00e7\u00e3o de Bens de Consumo Ltda",
+        "amount": 1479.5
+      },
+      {
+        "name": "Eva-last Hong Kong",
+        "amount": 200.0
+      },
+      {
+        "name": "Unidekor",
+        "amount": 355.0
+      },
+      {
+        "name": "Hamming Van Seventer",
+        "amount": 317.0
+      },
+      {
+        "name": "Next day flooring",
+        "amount": 146.57
+      },
+      {
+        "name": "Stile Societ\u00e0 Cooperativa",
+        "amount": 293.14
+      },
+      {
+        "name": "Maison sib",
+        "amount": 146.57
+      },
+      {
+        "name": "Regal Coatings",
+        "amount": 100.0
+      },
+      {
+        "name": "Volf Concrete Coatings and Polishing",
+        "amount": 1800.0
+      },
+      {
+        "name": "Un amour de tapis Morocco",
+        "amount": 850.0
+      },
+      {
+        "name": "Casa Rossell\u00f3",
+        "amount": 355.0
+      },
+      {
+        "name": "TAJIMA ROOFING.INC",
+        "amount": 2.02
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Tenda dos Tapetes",
+        "amount": 300.0
+      },
+      {
+        "name": "Flooring Solutions",
+        "amount": 1500.0
+      },
+      {
+        "name": "Sophie Lupien",
+        "amount": 233.0
+      },
+      {
+        "name": "Brett D Wells",
+        "amount": 49.0
+      },
+      {
+        "name": "Floors Adelaide | Floorworldusa",
+        "amount": 149.0
+      },
+      {
+        "name": "Valencia Hardwoods",
+        "amount": 158.83
+      },
+      {
+        "name": "Luis Riguard",
+        "amount": 49.0
+      },
+      {
+        "name": "San Marcos Revestimentos Cer\u00e2micos Ltda (Cejatel)",
+        "amount": 558.68
+      },
+      {
+        "name": "EDIFICOR S.R.L",
+        "amount": 207.0
+      },
+      {
+        "name": "Bazaar Velvet",
+        "amount": 150.0
+      },
+      {
+        "name": "Yekaterina Orexova",
+        "amount": 300.0
+      }
+    ]
   },
   "2026-02": {
-    "collected": 31896.65,
-    "billed": 31896.65,
+    "collected": 31906.98,
+    "billed": 31906.98,
     "credits": 0.0,
-    "count": 52
+    "count": 52,
+    "customers": [
+      {
+        "name": "Douglas Wagoner",
+        "amount": 49.0
+      },
+      {
+        "name": "The Garage Floor Company",
+        "amount": 355.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Pravada",
+        "amount": 599.0
+      },
+      {
+        "name": "Alfombras Hamid",
+        "amount": 56.81
+      },
+      {
+        "name": "Safe Scapes",
+        "amount": 3500.0
+      },
+      {
+        "name": "Mike McDermott",
+        "amount": 49.0
+      },
+      {
+        "name": "Acsento",
+        "amount": 416.0
+      },
+      {
+        "name": "LA DISTRIBUIDORA DE CASIMIRES S.A DE C.V.",
+        "amount": 295.0
+      },
+      {
+        "name": "MARBLELIFE",
+        "amount": 249.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Adriana reis",
+        "amount": 156.25
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Transylvania Concrete Coatings",
+        "amount": 199.0
+      },
+      {
+        "name": "ViaStar",
+        "amount": 350.0
+      },
+      {
+        "name": "Exclusive Rugs By Bijan Pty Ltd.",
+        "amount": 207.0
+      },
+      {
+        "name": "Stauf USA",
+        "amount": 299.0
+      },
+      {
+        "name": "Triff",
+        "amount": 400.0
+      },
+      {
+        "name": "IPEK Warenhandelsgesellschaft mbH",
+        "amount": 175.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Lance Jensen",
+        "amount": 49.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Originate",
+        "amount": 403.35
+      },
+      {
+        "name": "Alexander Marck",
+        "amount": 499.0
+      },
+      {
+        "name": "Leaf Home Garage Flooring",
+        "amount": 300.0
+      },
+      {
+        "name": "Van Heugten Tapijtegels BV",
+        "amount": 5385.52
+      },
+      {
+        "name": "Final Specs Flooring LLC",
+        "amount": 355.0
+      },
+      {
+        "name": "Devox",
+        "amount": 2448.0
+      },
+      {
+        "name": "Eva-last Hong Kong",
+        "amount": 200.0
+      },
+      {
+        "name": "Unidekor",
+        "amount": 355.0
+      },
+      {
+        "name": "Hamming Van Seventer",
+        "amount": 317.0
+      },
+      {
+        "name": "Next day flooring",
+        "amount": 146.57
+      },
+      {
+        "name": "Stile Societ\u00e0 Cooperativa",
+        "amount": 293.14
+      },
+      {
+        "name": "Maison sib",
+        "amount": 146.57
+      },
+      {
+        "name": "Regal Coatings",
+        "amount": 100.0
+      },
+      {
+        "name": "Casa Rossell\u00f3",
+        "amount": 355.0
+      },
+      {
+        "name": "TAJIMA ROOFING.INC",
+        "amount": 2.02
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Tenda dos Tapetes",
+        "amount": 300.0
+      },
+      {
+        "name": "Wood Connexions ltd",
+        "amount": 2492.24
+      },
+      {
+        "name": "Bona US",
+        "amount": 3225.0
+      },
+      {
+        "name": "Bona US",
+        "amount": 3225.0
+      },
+      {
+        "name": "Sophie Lupien",
+        "amount": 233.0
+      },
+      {
+        "name": "ADAM G & SUSAN HEATON",
+        "amount": 1800.0
+      },
+      {
+        "name": "Brett D Wells",
+        "amount": 49.0
+      },
+      {
+        "name": "Floors Adelaide | Floorworldusa",
+        "amount": 149.0
+      },
+      {
+        "name": "Valencia Hardwoods",
+        "amount": 158.83
+      },
+      {
+        "name": "Luis Riguard",
+        "amount": 49.0
+      },
+      {
+        "name": "San Marcos Revestimentos Cer\u00e2micos Ltda (Cejatel)",
+        "amount": 558.68
+      },
+      {
+        "name": "EDIFICOR S.R.L",
+        "amount": 207.0
+      },
+      {
+        "name": "Bazaar Velvet",
+        "amount": 150.0
+      },
+      {
+        "name": "Yekaterina Orexova",
+        "amount": 300.0
+      }
+    ]
   },
   "2026-03": {
-    "collected": 30297.15,
-    "billed": 30297.15,
+    "collected": 30300.27,
+    "billed": 30300.27,
     "credits": 0.0,
-    "count": 55
+    "count": 55,
+    "customers": [
+      {
+        "name": "Consorcio Persa - Chile (Main account)",
+        "amount": 2580.0
+      },
+      {
+        "name": "Battle Born Coatings",
+        "amount": 1800.0
+      },
+      {
+        "name": "Pravada",
+        "amount": 599.0
+      },
+      {
+        "name": "Alfombras Hamid",
+        "amount": 56.81
+      },
+      {
+        "name": "Douglas Wagoner",
+        "amount": 49.0
+      },
+      {
+        "name": "The Garage Floor Company",
+        "amount": 355.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Rugs for Good Pty LTD",
+        "amount": 1632.92
+      },
+      {
+        "name": "Dustin Olson",
+        "amount": 2500.0
+      },
+      {
+        "name": "Mike McDermott",
+        "amount": 49.0
+      },
+      {
+        "name": "Acsento",
+        "amount": 416.0
+      },
+      {
+        "name": "LA DISTRIBUIDORA DE CASIMIRES S.A DE C.V.",
+        "amount": 295.0
+      },
+      {
+        "name": "MARBLELIFE",
+        "amount": 249.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Adriana reis",
+        "amount": 156.25
+      },
+      {
+        "name": "Transylvania Concrete Coatings",
+        "amount": 199.0
+      },
+      {
+        "name": "The Trustee for Hirsch Family Trust",
+        "amount": 45.0
+      },
+      {
+        "name": "ViaStar",
+        "amount": 350.0
+      },
+      {
+        "name": "Exclusive Rugs By Bijan Pty Ltd.",
+        "amount": 207.0
+      },
+      {
+        "name": "Stauf USA",
+        "amount": 299.0
+      },
+      {
+        "name": "Triff",
+        "amount": 400.0
+      },
+      {
+        "name": "IPEK Warenhandelsgesellschaft mbH",
+        "amount": 175.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Lance Jensen",
+        "amount": 49.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Originate",
+        "amount": 403.35
+      },
+      {
+        "name": "Alexander Marck",
+        "amount": 499.0
+      },
+      {
+        "name": "Solpex",
+        "amount": 1400.0
+      },
+      {
+        "name": "Leaf Home Garage Flooring",
+        "amount": 300.0
+      },
+      {
+        "name": "IAW LIGHT",
+        "amount": 1500.0
+      },
+      {
+        "name": "Final Specs Flooring LLC",
+        "amount": 355.0
+      },
+      {
+        "name": "Global Distribui\u00e7\u00e3o de Bens de Consumo Ltda",
+        "amount": 1479.5
+      },
+      {
+        "name": "Eva-last Hong Kong",
+        "amount": 200.0
+      },
+      {
+        "name": "ART IMPORT DISTDE TAP LTDA",
+        "amount": 115.63
+      },
+      {
+        "name": "Unidekor",
+        "amount": 355.0
+      },
+      {
+        "name": "Hamming Van Seventer",
+        "amount": 317.0
+      },
+      {
+        "name": "Next day flooring",
+        "amount": 146.57
+      },
+      {
+        "name": "Stile Societ\u00e0 Cooperativa",
+        "amount": 293.14
+      },
+      {
+        "name": "Musaed Abdul Latif Al Ghamlas Contracting Est",
+        "amount": 4491.0
+      },
+      {
+        "name": "Maison sib",
+        "amount": 146.57
+      },
+      {
+        "name": "Regal Coatings",
+        "amount": 100.0
+      },
+      {
+        "name": "Casa Rossell\u00f3",
+        "amount": 355.0
+      },
+      {
+        "name": "TAJIMA ROOFING.INC",
+        "amount": 2.02
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Tenda dos Tapetes",
+        "amount": 300.0
+      },
+      {
+        "name": "Bona US",
+        "amount": 3225.0
+      },
+      {
+        "name": "Sophie Lupien",
+        "amount": 233.0
+      },
+      {
+        "name": "Brett D Wells",
+        "amount": 49.0
+      },
+      {
+        "name": "Floors Adelaide | Floorworldusa",
+        "amount": 149.0
+      },
+      {
+        "name": "Valencia Hardwoods",
+        "amount": 158.83
+      },
+      {
+        "name": "Luis Riguard",
+        "amount": 49.0
+      },
+      {
+        "name": "San Marcos Revestimentos Cer\u00e2micos Ltda (Cejatel)",
+        "amount": 558.68
+      },
+      {
+        "name": "EDIFICOR S.R.L",
+        "amount": 207.0
+      },
+      {
+        "name": "Bazaar Velvet",
+        "amount": 150.0
+      }
+    ]
   },
   "2026-04": {
-    "collected": 27331.99,
-    "billed": 27331.99,
+    "collected": 27333.72,
+    "billed": 27333.72,
     "credits": 0.0,
-    "count": 48
+    "count": 48,
+    "customers": [
+      {
+        "name": "Pravada",
+        "amount": 599.0
+      },
+      {
+        "name": "Alfombras Hamid",
+        "amount": 56.81
+      },
+      {
+        "name": "Cornerstone",
+        "amount": 1800.0
+      },
+      {
+        "name": "Douglas Wagoner",
+        "amount": 49.0
+      },
+      {
+        "name": "The Garage Floor Company",
+        "amount": 355.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Mike McDermott",
+        "amount": 49.0
+      },
+      {
+        "name": "All Sealed",
+        "amount": 2000.0
+      },
+      {
+        "name": "Acsento",
+        "amount": 416.0
+      },
+      {
+        "name": "LA DISTRIBUIDORA DE CASIMIRES S.A DE C.V.",
+        "amount": 295.0
+      },
+      {
+        "name": "MARBLELIFE",
+        "amount": 249.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Adriana reis",
+        "amount": 156.25
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "David A Reynolds",
+        "amount": 1620.0
+      },
+      {
+        "name": "Transylvania Concrete Coatings",
+        "amount": 199.0
+      },
+      {
+        "name": "ViaStar",
+        "amount": 350.0
+      },
+      {
+        "name": "Exclusive Rugs By Bijan Pty Ltd.",
+        "amount": 207.0
+      },
+      {
+        "name": "Stauf USA",
+        "amount": 299.0
+      },
+      {
+        "name": "Triff",
+        "amount": 400.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Lance Jensen",
+        "amount": 49.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Originate",
+        "amount": 403.35
+      },
+      {
+        "name": "Alexander Marck",
+        "amount": 499.0
+      },
+      {
+        "name": "terracassa.com",
+        "amount": 5988.0
+      },
+      {
+        "name": "Final Specs Flooring LLC",
+        "amount": 355.0
+      },
+      {
+        "name": "Global Distribui\u00e7\u00e3o de Bens de Consumo Ltda",
+        "amount": 1479.5
+      },
+      {
+        "name": "Eva-last Hong Kong",
+        "amount": 200.0
+      },
+      {
+        "name": "Hamming Van Seventer",
+        "amount": 317.0
+      },
+      {
+        "name": "Next day flooring",
+        "amount": 146.57
+      },
+      {
+        "name": "Stile Societ\u00e0 Cooperativa",
+        "amount": 293.14
+      },
+      {
+        "name": "Maison sib",
+        "amount": 146.57
+      },
+      {
+        "name": "Regal Coatings",
+        "amount": 100.0
+      },
+      {
+        "name": "Casa Rossell\u00f3",
+        "amount": 355.0
+      },
+      {
+        "name": "TAJIMA ROOFING.INC",
+        "amount": 2.02
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Tenda dos Tapetes",
+        "amount": 300.0
+      },
+      {
+        "name": "Durable Concrete Coatings",
+        "amount": 2520.0
+      },
+      {
+        "name": "Bona US",
+        "amount": 3225.0
+      },
+      {
+        "name": "Sophie Lupien",
+        "amount": 233.0
+      },
+      {
+        "name": "Brett D Wells",
+        "amount": 49.0
+      },
+      {
+        "name": "Floors Adelaide | Floorworldusa",
+        "amount": 149.0
+      },
+      {
+        "name": "Valencia Hardwoods",
+        "amount": 158.83
+      },
+      {
+        "name": "Luis Riguard",
+        "amount": 49.0
+      },
+      {
+        "name": "San Marcos Revestimentos Cer\u00e2micos Ltda (Cejatel)",
+        "amount": 558.68
+      },
+      {
+        "name": "EDIFICOR S.R.L",
+        "amount": 207.0
+      },
+      {
+        "name": "Bazaar Velvet",
+        "amount": 150.0
+      }
+    ]
   },
   "2026-05": {
-    "collected": 31899.9,
-    "billed": 32517.94,
-    "credits": 618.04,
-    "count": 43
+    "collected": 31901.39,
+    "billed": 32520.2,
+    "credits": 618.81,
+    "count": 43,
+    "customers": [
+      {
+        "name": "Affordable Garage Carpet",
+        "amount": 1650.0
+      },
+      {
+        "name": "Pravada",
+        "amount": 599.0
+      },
+      {
+        "name": "Alfombras Hamid",
+        "amount": 56.81
+      },
+      {
+        "name": "Douglas Wagoner",
+        "amount": 49.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Mike McDermott",
+        "amount": 49.0
+      },
+      {
+        "name": "Acsento",
+        "amount": 416.0
+      },
+      {
+        "name": "LA DISTRIBUIDORA DE CASIMIRES S.A DE C.V.",
+        "amount": 295.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Adriana reis",
+        "amount": 156.25
+      },
+      {
+        "name": "Transylvania Concrete Coatings",
+        "amount": 199.0
+      },
+      {
+        "name": "ViaStar",
+        "amount": 350.0
+      },
+      {
+        "name": "Exclusive Rugs By Bijan Pty Ltd.",
+        "amount": 207.0
+      },
+      {
+        "name": "Stauf USA",
+        "amount": 299.0
+      },
+      {
+        "name": "Triff",
+        "amount": 400.0
+      },
+      {
+        "name": "Shimicoat Surface Solutions",
+        "amount": 1980.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Lance Jensen",
+        "amount": 49.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Originate",
+        "amount": 403.35
+      },
+      {
+        "name": "Alexander Marck",
+        "amount": 499.0
+      },
+      {
+        "name": "Carpet Call (Holdings) Pty Ltd",
+        "amount": 16680.0
+      },
+      {
+        "name": "Final Specs Flooring LLC",
+        "amount": 355.0
+      },
+      {
+        "name": "Eva-last Hong Kong",
+        "amount": 200.0
+      },
+      {
+        "name": "Next day flooring",
+        "amount": 146.57
+      },
+      {
+        "name": "Stile Societ\u00e0 Cooperativa",
+        "amount": 293.14
+      },
+      {
+        "name": "Maison sib",
+        "amount": 146.57
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 600.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 600.0
+      },
+      {
+        "name": "TAJIMA ROOFING.INC",
+        "amount": 2.02
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Tenda dos Tapetes",
+        "amount": 300.0
+      },
+      {
+        "name": "Bona US",
+        "amount": 3225.0
+      },
+      {
+        "name": "Sophie Lupien",
+        "amount": 233.0
+      },
+      {
+        "name": "Brett D Wells",
+        "amount": 49.0
+      },
+      {
+        "name": "Floors Adelaide | Floorworldusa",
+        "amount": 149.0
+      },
+      {
+        "name": "Luis Riguard",
+        "amount": 49.0
+      },
+      {
+        "name": "San Marcos Revestimentos Cer\u00e2micos Ltda (Cejatel)",
+        "amount": 558.68
+      },
+      {
+        "name": "EDIFICOR S.R.L",
+        "amount": 207.0
+      },
+      {
+        "name": "Bazaar Velvet",
+        "amount": 150.0
+      }
+    ]
   },
-  "__version__": "v1"
+  "__version__": "v2"
 }
