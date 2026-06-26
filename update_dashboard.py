@@ -890,6 +890,19 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .cmp-bar{{width:100%;border-radius:4px 4px 0 0;transition:height .3s ease;min-height:0}}
 .cmp-lbl{{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}}
 .cmp-diff{{text-align:center;font-size:12px;padding:8px;border-radius:var(--r);margin-top:4px}}
+.cmp-col-click{{cursor:pointer;border-radius:var(--r);padding:6px 4px;margin:-6px -4px;transition:background .15s}}
+.cmp-col-click:hover{{background:var(--bg2)}}
+.modal-overlay{{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:50;align-items:center;justify-content:center;padding:20px}}
+.modal-box{{background:var(--bg);border-radius:var(--rl);max-width:420px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.25)}}
+.modal-header{{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:0.5px solid var(--border2);font-size:13px;font-weight:600;color:var(--text)}}
+.modal-close{{cursor:pointer;color:var(--text3);font-size:18px;line-height:1;padding:0 4px}}
+.modal-body{{overflow-y:auto;padding:6px 16px 14px}}
+.modal-row{{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 0;border-bottom:0.5px solid var(--border2);font-size:13px}}
+.modal-row:last-child{{border-bottom:none}}
+.modal-total{{font-weight:600;border-bottom:0.5px solid var(--border)}}
+.modal-cust{{display:flex;flex-direction:column;gap:1px;min-width:0}}
+.modal-tag{{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.03em}}
+.modal-val{{font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}}
 /* row2 */
 .row2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.5rem}}
 .kv{{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--border2);font-size:13px}}
@@ -1032,7 +1045,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     <div class="card">
       <div class="card-title" style="color:var(--text)" id="cmp-title">Expected vs Collected</div>
       <div class="cmp-bars">
-        <div class="cmp-col">
+        <div class="cmp-col cmp-col-click" onclick="showExpectedDetail()" title="Click to see which customers make up this amount">
           <div class="cmp-amt" id="cval-exp" style="color:var(--green)">—</div>
           <div class="cmp-bar-area">
             <div class="cmp-bar" id="cbar-exp" style="background:var(--gbar)"></div>
@@ -1305,6 +1318,41 @@ function updateCmpCard(){{
   }}
 }}
 
+function showExpectedDetail(){{
+  // Same source/filtering as expectedForMonth(): r[9] (smoothed), with
+  // past/current months pulling from D (all non-cancelled) and future
+  // months restricted to Active — so the listed customers always sum to
+  // exactly the "Expected" figure shown on the card.
+  const isYr=mi===-1;
+  let list;
+  if(isYr){{
+    list=D.map(r=>{{
+      let amt=0;
+      MONTHS.forEach((_,i)=>{{
+        if(i<=TODAY_MI||r[1]==="Active") amt+=r[9][i];
+      }});
+      return {{name:r[0],status:r[1],interval:r[2],amount:amt}};
+    }}).filter(x=>x.amount>0);
+  }}else{{
+    const subs=mi<=TODAY_MI?D:D.filter(r=>r[1]==="Active");
+    list=subs.map(r=>({{name:r[0],status:r[1],interval:r[2],amount:r[9][mi]}})).filter(x=>x.amount>0);
+  }}
+  list.sort((a,b)=>b.amount-a.amount);
+  const total=list.reduce((s,x)=>s+x.amount,0);
+  const label=isYr?"Full Year 2026":MONTHS[mi];
+  const rowsHtml=list.map(x=>`<div class="modal-row">
+      <span class="modal-cust">${{x.name}}<span class="modal-tag">${{x.interval}}${{x.status!=="Active"?" · "+x.status:""}}</span></span>
+      <span class="modal-val" style="color:var(--green)">${{fmt(x.amount)}}</span>
+    </div>`).join("") || `<div class="empty">No customers</div>`;
+  document.getElementById("modal-title").textContent="Expected — "+label+" ("+list.length+" customer"+(list.length!==1?"s":"")+")";
+  document.getElementById("modal-body").innerHTML=`<div class="modal-row modal-total"><span class="modal-cust">Total</span><span class="modal-val">${{fmt(total)}}</span></div>`+rowsHtml;
+  document.getElementById("cust-modal").style.display="flex";
+}}
+function closeCustModal(e){{
+  if(e&&e.target.id!=="cust-modal") return;
+  document.getElementById("cust-modal").style.display="none";
+}}
+
 let sortCol=3,sortDir=-1; // default: base amount descending
 
 function setSortCol(col){{
@@ -1515,6 +1563,15 @@ function renderAnalytics(){{
   _makePie("pie-mrr",pieMrr,v=>"$"+v.toLocaleString()+"/mo");
 }}
 </script>
+<div id="cust-modal" class="modal-overlay" onclick="closeCustModal(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="modal-title"></span>
+      <span class="modal-close" onclick="closeCustModal()">&times;</span>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
 </body>
 </html>"""
 
