@@ -1235,11 +1235,11 @@ const TODAY_MI={today_mi}; // current month index, computed at generation time
 function expectedForMonth(i){{
   // Past/current months: all subs (they were expected to bill then)
   // Future months: active only (what we can realistically expect)
-  // Uses r[9] (smoothed monthly-equivalent), not r[4] (calendar-accurate
-  // billing spike), so Expected tracks MRR's annual/12 + monthly
-  // methodology instead of jumping whenever an annual renewal lands.
+  // Uses r[4] (calendar-accurate billing array) — same array MRR/ARR cards
+  // now use (updateMetricsCards), so Expected = MRR(period) + ARR(period)
+  // exactly, for any month or Year.
   const subs=i<=TODAY_MI?D:D.filter(r=>r[1]==="Active");
-  return subs.reduce((s,r)=>s+r[9][i],0);
+  return subs.reduce((s,r)=>s+r[4][i],0);
 }}
 function renderExpectedChart(){{
   const mt=MONTHS.map((_,i)=>expectedForMonth(i));
