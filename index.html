@@ -148,7 +148,7 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: Jun 25, 2026 at 23:53 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: Jun 26, 2026 at 00:31 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <div class="tabs" style="margin-bottom:0">
@@ -284,7 +284,7 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
         </div>
         <span style="font-size:12px;font-weight:500;color:var(--text)" id="vol-bar-gross-lbl"></span>
       </div>
-      <div style="display:grid;grid-template-columns:60px 1fr 72px;gap:8px;align-items:center">
+      <div id="vol-row-refunds" style="display:grid;grid-template-columns:60px 1fr 72px;gap:8px;align-items:center">
         <span style="font-size:11px;color:var(--text3);text-align:right">Refunds</span>
         <div style="height:7px;background:var(--bg2);border-radius:4px;overflow:hidden">
           <div id="vol-bar-credits" style="height:100%;width:0%;background:#E24B4A;border-radius:4px;transition:width .4s"></div>
@@ -393,7 +393,7 @@ const BC={"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(Math.abs(v));
 const fmtS=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
 
-let mi=4,pg=1,sf="all"; // mi: 0-11=Jan-Dec, -1=Year; default May (index 4)
+let mi=5,pg=1,sf="all"; // mi: 0-11=Jan-Dec, -1=Year; defaults to current month
 const PS=15;
 
 function byStatus(){
@@ -444,6 +444,8 @@ function updateVolCard(){
   document.getElementById("vol-bar-gross-lbl").textContent=b>0?fmtS(b):"—";
   document.getElementById("vol-bar-credits").style.width=Math.min(100,(r/maxW)*100).toFixed(1)+"%";
   document.getElementById("vol-bar-credits-lbl").textContent=r>0?"-"+fmtS(r):"—";
+  const rowRefunds=document.getElementById("vol-row-refunds");
+  if(rowRefunds) rowRefunds.style.display=r>0?"grid":"none";
   document.getElementById("vol-bar-net").style.width=Math.min(100,(c/maxW)*100).toFixed(1)+"%";
   document.getElementById("vol-bar-net-lbl").textContent=c>0?fmtS(c):"—";
 }
@@ -474,19 +476,17 @@ function updateSelCard(){
       .filter(x=>x.amt>0)
       .sort((a,b)=>b.amt-a.amt);
     document.getElementById("risk-list").innerHTML=riskRows.length?riskRows.map(x=>`
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <span style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${x.name}">${x.name}</span>
-        <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-          <span class="badge ${BC[x.status]||"b-unpaid"}">${x.status}</span>
-          <span style="font-size:12px;color:var(--red);font-weight:500;min-width:64px;text-align:right">${fmtS(x.amt)}</span>
-        </span>
+      <div style="display:flex;align-items:baseline;gap:6px">
+        <span style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto" title="${x.name}">${x.name}</span>
+        <span style="flex:1;border-bottom:1px dotted var(--text3);min-width:12px;margin-bottom:3px"></span>
+        <span style="font-size:12px;color:var(--red);font-weight:500;flex-shrink:0">${fmtS(x.amt)}</span>
       </div>`).join(""):'<div style="font-size:12px;color:var(--text3)">No accounts at risk this period</div>';
     document.getElementById("risk-pastdue").textContent=pdAmt>0?fmtS(pdAmt)+" · "+pastDueRows.filter(r=>amtFor(r)>0).length+" cust.":"—";
     document.getElementById("risk-unpaid").textContent=unpAmt>0?fmtS(unpAmt)+" · "+unpaidRows.filter(r=>amtFor(r)>0).length+" cust.":"—";
   }
 }
 
-const TODAY_MI=4; // May 2026 = index 4; update each new year
+const TODAY_MI=5; // current month index, computed at generation time
 function expectedForMonth(i){
   // Past/current months: all subs (they were expected to bill then)
   // Future months: active only (what we can realistically expect)
@@ -578,23 +578,12 @@ function invMonth(dateStr){
 function getFiltered(){
   const q=document.getElementById("search").value.toLowerCase();
   const base=byStatus();
-  let byM;
-  if(mi>=0){
-    // Month view: show customers whose next invoice falls in this month
-    // This ensures each month shows a distinct, relevant set of customers
-    byM=base.filter(r=>{
-      const nim=invMonth(r[5]);
-      if(nim===mi) return true; // next invoice is this month ✓
-      // Also include annual subs whose renewal is this month (may have already renewed)
-      if(r[2]==="Annual"&&r[4][mi]>0) return true;
-      return false;
-    });
-    // If no matches (e.g. past month where all next_inv have moved forward),
-    // fall back to projection-based filter
-    if(byM.length===0) byM=base.filter(r=>r[4][mi]>0);
-  }else{
-    byM=base; // Year: show all
-  }
+  // Month view: show customers with a projected amount in this month.
+  // proj[mi] already encodes the right months per subscription (every
+  // month for Monthly, just the renewal month for Annual) — next_invoice
+  // is a single forward-looking date and can't represent a recurring
+  // monthly schedule, so it's only used for display, not filtering.
+  const byM=mi>=0?base.filter(r=>r[4][mi]>0):base;
   const filtered=byM.filter(r=>!q||r[0].toLowerCase().includes(q));
   return filtered.slice().sort((a,b)=>{
     let va,vb;
