@@ -521,9 +521,10 @@ def fetch_invoice_data():
       monthly_refunds  — [12]  sum(refund.amount) by refund.created month
       monthly_net      — [12]  collected - refunds
       today_payments   — list[{name, amount, time}] paid since yesterday midnight
+      monthly_collected_detail — [12] list[{name, amount}] per-customer collected, by paid_at month
     """
     CACHE_FILE = "invoice_cache.json"
-    CACHE_VER  = "v1"
+    CACHE_VER  = "v2"  # bumped: cache entries now also store per-customer "customers" detail
     try:
         with open(CACHE_FILE) as f:
             raw = json.load(f)
@@ -546,9 +547,10 @@ def fetch_invoice_data():
         mc  = [cache.get(f"2026-{i+1:02d}", {}).get("collected", 0.0) for i in range(12)]
         mb  = [cache.get(f"2026-{i+1:02d}", {}).get("billed",    0.0) for i in range(12)]
         mcr = [cache.get(f"2026-{i+1:02d}", {}).get("credits",   0.0) for i in range(12)]
+        mcd = [cache.get(f"2026-{i+1:02d}", {}).get("customers", []) for i in range(12)]
         metrics = _build_metrics_from_cache(cache, current_mi)
         refunds_arr, net_arr = _fetch_refund_volume()
-        return (metrics, mc, mb, mcr, refunds_arr, net_arr, [])
+        return (metrics, mc, mb, mcr, refunds_arr, net_arr, [], mcd)
 
     # --- fetch invoices for needed months + today ---
     # Go back 60 days from earliest needed month to catch invoices created before
@@ -565,7 +567,7 @@ def fetch_invoice_data():
     since_ts = int(yesterday.timestamp())
 
     # accumulators
-    month_data    = {mi: {"collected":0.0,"billed":0.0,"credits":0.0,"count":0}
+    month_data    = {mi: {"collected":0.0,"billed":0.0,"credits":0.0,"count":0,"customers":[]}
                      for mi in range(12)}
     # For MRR: latest paid invoice per subscription
     latest_by_sub = {}   # sub_id -> {amount_usd, interval, cust_id, paid_at}
@@ -606,6 +608,9 @@ def fetch_invoice_data():
                     month_data[mi]["billed"]    = round(month_data[mi]["billed"]    + billed,    2)
                     month_data[mi]["credits"]   = round(month_data[mi]["credits"]   + max(credits,0), 2)
                     month_data[mi]["count"]     += 1
+                    if collected > 0:
+                        cname_m = (d.get("customer_name") or d.get("customer_email") or "Unknown")
+                        month_data[mi]["customers"].append({"name": cname_m, "amount": round(collected, 2)})
 
                 # Latest paid invoice per subscription (for MRR)
                 sub_id = str(d.get("subscription") or "")
@@ -658,6 +663,7 @@ def fetch_invoice_data():
     mc   = []
     mb   = []
     mcr  = []
+    mcd  = []
     for mi in range(12):
         key = f"2026-{mi+1:02d}"
         if mi in months_needed:
@@ -667,6 +673,7 @@ def fetch_invoice_data():
         mc.append(d.get("collected", 0.0))
         mb.append(d.get("billed",    0.0))
         mcr.append(d.get("credits",  0.0))
+        mcd.append(d.get("customers", []))
 
     # --- MRR / ARR / mrr_by_type from latest_by_sub ---
     metrics = _compute_mrr_from_invoices(latest_by_sub, current_mi)
@@ -677,7 +684,7 @@ def fetch_invoice_data():
     today_payments.sort(key=lambda x: x["time"], reverse=True)
     print(f"  {len(today_payments)} payment(s) since {yesterday.strftime('%Y-%m-%d')} UTC")
 
-    return (metrics, mc, mb, mcr, refunds_arr, net_arr, today_payments)
+    return (metrics, mc, mb, mcr, refunds_arr, net_arr, today_payments, mcd)
 
 
 def _compute_mrr_from_invoices(latest_by_sub: dict, current_mi: int) -> dict:
@@ -778,12 +785,13 @@ def _fetch_refund_volume(monthly_collected: list = None):
 
 
 
-def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed=None, monthly_credits=None, monthly_refunds=None, monthly_net=None):
+def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed=None, monthly_credits=None, monthly_refunds=None, monthly_net=None, monthly_collected_detail=None):
     _now             = datetime.now(timezone.utc)
     today_mi         = (_now.month - 1) if _now.year == 2026 else (12 if _now.year > 2026 else 0)
     rows_js          = json.dumps(rows, ensure_ascii=False)
     totals_js        = json.dumps(totals)
     collected_js     = json.dumps(monthly_collected)
+    collected_detail_js = json.dumps(monthly_collected_detail or [[] for _ in range(12)], ensure_ascii=False)
     mrr_by_type_js   = json.dumps(metrics.get("mrr_by_type", {}), separators=(",",":"))
     problem_tot_js   = json.dumps([round(x,2) for x in problem_tot], separators=(",",":"))
     billed_js        = json.dumps([round(x,2) for x in (monthly_billed  or [0]*12)], separators=(",",":"))
@@ -974,6 +982,17 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
 .ctry-count{{font-size:11px;color:var(--text3);width:36px;text-align:right;flex-shrink:0}}
 .type-pill{{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 10px;border-radius:20px;background:var(--bg2);color:var(--text2);margin:3px}}
 .type-unknown{{font-size:12px;color:var(--text3);font-style:italic;padding:8px 0}}
+/* info tooltip */
+.title-row{{display:flex;align-items:center;gap:6px}}
+.info-btn{{position:relative;display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--bg2);color:var(--text3);flex-shrink:0;cursor:pointer;text-transform:none;letter-spacing:normal}}
+.info-btn svg{{width:10px;height:10px;display:block}}
+.info-btn:hover,.info-btn.show{{background:var(--border);color:var(--text2)}}
+.info-tip{{visibility:hidden;opacity:0;pointer-events:none;position:absolute;bottom:140%;left:0;transform:translateY(2px);background:var(--text);color:var(--bg);font-weight:400;font-size:12px;line-height:1.45;padding:9px 11px;border-radius:8px;width:min(230px,75vw);text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.22);z-index:40;transition:opacity .12s,transform .12s,visibility .12s;text-transform:none;letter-spacing:normal}}
+.info-btn:hover .info-tip,.info-btn:focus .info-tip,.info-btn.show .info-tip{{visibility:visible;opacity:1;pointer-events:auto;transform:translateY(0)}}
+/* column filters */
+.filter-row td{{padding:5px 6px;background:var(--bg2)}}
+.filter-row input,.filter-row select{{width:100%;font-size:12px;padding:4px 6px;border:0.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)}}
+.filter-row input::placeholder{{color:var(--text3)}}
 </style>
 </head>
 <body>
@@ -992,10 +1011,6 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
       <button class="icon-btn" onclick="location.reload()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.2"/><path d="M13.5 2.5v2.2H11.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Refresh
-      </button>
-      <button class="icon-btn" onclick="exportCurrentPage()">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0-2.5-2.5M8 10l2.5-2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13h10" stroke-linecap="round"/></svg>
-        Export CSV
       </button>
     </div>
   </div>
@@ -1024,17 +1039,32 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   <div id="page-overview">
   <div class="metrics">
     <div class="mc">
-      <div class="lbl">MRR</div>
+      <div class="lbl title-row">MRR
+        <span class="info-btn" tabindex="0" role="button" aria-label="O que é MRR?">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+          <span class="info-tip">Receita recorrente mensal: tudo que a Floori fatura por mês de forma recorrente (planos mensais + equivalente mensal dos planos anuais). É o principal termômetro de saúde do negócio.</span>
+        </span>
+      </div>
       <div class="val" style="color:var(--green)">${metrics["total_mrr"]:,.0f}</div>
       <div class="sub">${metrics["monthly_mrr"]:,.0f} monthly + ${metrics["annual_mrr"]:,.0f} annual-equiv</div>
     </div>
     <div class="mc">
-      <div class="lbl">ARR</div>
+      <div class="lbl title-row">ARR
+        <span class="info-btn" tabindex="0" role="button" aria-label="O que é ARR?">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+          <span class="info-tip">Receita recorrente anual: o MRR atual projetado para 12 meses. Usado para medir o tamanho do negócio e comparar crescimento ano a ano.</span>
+        </span>
+      </div>
       <div class="val">${metrics["total_mrr"]*12:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
       <div class="sub">{metrics["annual_count"]} annual + {metrics["monthly_count"]} monthly plans</div>
     </div>
     <div class="mc">
-      <div class="lbl">Recent collected</div>
+      <div class="lbl title-row">Recent collected
+        <span class="info-btn" tabindex="0" role="button" aria-label="O que é Recent collected?">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+          <span class="info-tip">Valor efetivamente recebido dos clientes nas últimas 24 horas, já convertido para dólar. Mostra o caixa que entrou de fato — diferente da receita apenas esperada.</span>
+        </span>
+      </div>
       <div class="val" style="color:{'var(--green)' if today_total>0 else 'var(--text3)'}">{today_total_fmt}</div>
       <div class="sub">{today_count} payment{"s" if today_count != 1 else ""} · since yesterday · USD</div>
     </div>
@@ -1043,7 +1073,13 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   <div class="row2">
     <!-- Expected vs Collected -->
     <div class="card">
-      <div class="card-title" style="color:var(--text)" id="cmp-title">Expected vs Collected</div>
+      <div class="title-row" style="margin-bottom:14px">
+        <div class="card-title" style="color:var(--text);margin-bottom:0" id="cmp-title">Expected vs Collected</div>
+        <span class="info-btn" tabindex="0" role="button" aria-label="O que é Expected vs Collected?">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+          <span class="info-tip">Compara quanto era esperado receber no período selecionado com quanto foi de fato cobrado e quanto voltou em reembolsos. A diferença sinaliza inadimplência, atraso de cobrança ou cancelamentos.</span>
+        </span>
+      </div>
       <div class="cmp-bars">
         <div class="cmp-col cmp-col-click" onclick="showExpectedDetail()" title="Click to see which customers make up this amount">
           <div class="cmp-amt" id="cval-exp" style="color:var(--green)">—</div>
@@ -1052,7 +1088,7 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
           </div>
           <div class="cmp-lbl">Expected</div>
         </div>
-        <div class="cmp-col">
+        <div class="cmp-col cmp-col-click" onclick="showCollectedDetail()" title="Click to see which customers make up this amount">
           <div class="cmp-amt" id="cval-col" style="color:var(--blue)">—</div>
           <div class="cmp-bar-area">
             <div class="cmp-bar" id="cbar-col" style="background:var(--bbar)"></div>
@@ -1072,7 +1108,13 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
     <!-- At-risk customer list -->
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
-        <div class="card-title" style="color:var(--text);margin-bottom:0">Revenue at risk</div>
+        <div class="title-row">
+          <div class="card-title" style="color:var(--text);margin-bottom:0">Revenue at risk</div>
+          <span class="info-btn" tabindex="0" role="button" aria-label="O que é Revenue at risk?">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+            <span class="info-tip">Soma dos valores de clientes com cobrança atrasada (Past due) ou não paga (Unpaid) no período selecionado. É o valor que pode não entrar no caixa se a cobrança não for resolvida.</span>
+          </span>
+        </div>
         <span style="font-size:20px;font-weight:700;color:var(--red)" id="risk-amt">—</span>
       </div>
       <div id="risk-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;max-height:190px;overflow-y:auto"></div>
@@ -1086,44 +1128,13 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   </div>
 
   <div class="card" style="margin-bottom:1.5rem">
-    <div class="card-title" style="color:var(--text)">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h · USD equiv.)</span></div>
+    <div class="card-title title-row" style="color:var(--text)">Recent payments <span style="font-weight:400;font-size:10px;color:var(--text3);text-transform:none;letter-spacing:0">(last 24h · USD equiv.)</span>
+      <span class="info-btn" tabindex="0" role="button" aria-label="O que é Recent payments?">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+        <span class="info-tip">Lista dos pagamentos confirmados pelos clientes nas últimas 24 horas, já convertidos para dólar.</span>
+      </span>
+    </div>
     {"<div class='inv-wrap'><table class='inv-table'><thead><tr><th>Customer</th><th class='r'>Amount</th><th>Time</th></tr></thead><tbody>" + today_rows_html + "</tbody></table></div>" if today_invoices else "<div class='empty'>No payments in the last 24h</div>"}
-  </div>
-
-  <div class="tbl-section">
-    <div class="tbl-header">
-      <div class="card-title" style="color:var(--text)" id="tbl-title" style="margin-bottom:0">All customers</div>
-      <div class="tbl-controls">
-        <input id="search" placeholder="Search…" oninput="renderTable()">
-        <select id="flt" onchange="updateAll()">
-          <option value="all">All</option>
-          <option value="Active">Active</option>
-          <option value="problem">Problem accounts</option>
-        </select>
-
-      </div>
-    </div>
-    <p id="tbl-hint" style="font-size:12px;color:var(--text3);margin-bottom:10px"></p>
-    <div class="tbl-wrap">
-      <table>
-        <thead><tr id="tbl-head">
-          <th style="width:28%;cursor:pointer;user-select:none" onclick="setSortCol(0)">Customer <span id="sh0"></span></th>
-          <th style="width:9%;cursor:pointer;user-select:none" onclick="setSortCol(6)">Country <span id="sh6"></span></th>
-          <th style="width:11%;cursor:pointer;user-select:none" onclick="setSortCol(7)">Type <span id="sh7"></span></th>
-          <th style="width:11%;cursor:pointer;user-select:none" onclick="setSortCol(1)">Status <span id="sh1"></span></th>
-          <th style="width:14%;cursor:pointer;user-select:none" onclick="setSortCol(5)">Next invoice <span id="sh5"></span></th>
-          <th style="width:12%;cursor:pointer;user-select:none" class="r" onclick="setSortCol(3)">Base amount <span id="sh3"></span></th>
-          <th style="width:8%;cursor:pointer;user-select:none" onclick="setSortCol(2)">Interval <span id="sh2"></span></th>
-        </tr></thead>
-        <tbody id="tbody"></tbody>
-      </table>
-    </div>
-    <div class="pag">
-      <button id="prev-pg" onclick="go(-1)" disabled>← Prev</button>
-      <span id="pg-info">Page 1 of 1</span>
-      <button id="next-pg" onclick="go(1)">Next →</button>
-      <span id="ct-lbl"></span>
-    </div>
   </div>
 
   </div><!-- /page-overview -->
@@ -1132,17 +1143,32 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   <div id="page-analytics" style="display:none">
     <div class="analytics-grid" style="margin-bottom:1.5rem">
       <div class="card">
-        <div class="card-title" style="color:var(--text)">Customers by type</div>
+        <div class="card-title title-row" style="color:var(--text)">Customers by type
+          <span class="info-btn" tabindex="0" role="button" aria-label="O que é Customers by type?">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+            <span class="info-tip">Como a base de clientes ativos se distribui por tipo de negócio (varejista, distribuidor etc). Mostra de onde vem a maior parte da carteira.</span>
+          </span>
+        </div>
         <div id="pie-count" style="display:flex;flex-direction:column;align-items:center;gap:16px"></div>
       </div>
       <div class="card">
-        <div class="card-title" style="color:var(--text)">MRR by type</div>
+        <div class="card-title title-row" style="color:var(--text)">MRR by type
+          <span class="info-btn" tabindex="0" role="button" aria-label="O que é MRR by type?">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+            <span class="info-tip">Quanto cada tipo de cliente contribui para a receita recorrente mensal. Mostra quais segmentos geram mais receita — não necessariamente os com mais clientes.</span>
+          </span>
+        </div>
         <div id="pie-mrr" style="display:flex;flex-direction:column;align-items:center;gap:16px"></div>
       </div>
     </div>
 
     <div class="card" style="margin-bottom:1.5rem">
-      <div class="card-title" style="color:var(--text)">Revenue &amp; customers by country</div>
+      <div class="card-title title-row" style="color:var(--text)">Revenue &amp; customers by country
+        <span class="info-btn" tabindex="0" role="button" aria-label="O que é Revenue & customers by country?">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+          <span class="info-tip">Receita recorrente mensal e número de clientes por país. Ajuda a identificar concentração geográfica, exposição cambial e oportunidades de expansão.</span>
+        </span>
+      </div>
       <div style="overflow-x:auto;border-radius:var(--r);border:0.5px solid var(--border2)">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead>
@@ -1159,6 +1185,71 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
         </table>
       </div>
     </div>
+
+    <!-- Customer listing (moved from Overview) -->
+    <div class="tbl-section">
+      <div class="tbl-header">
+        <div class="title-row">
+          <div class="card-title" style="color:var(--text);margin-bottom:0" id="tbl-title">All customers</div>
+          <span class="info-btn" tabindex="0" role="button" aria-label="O que é All customers?">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+            <span class="info-tip">Lista completa de clientes com status de cobrança, valor, país e tipo. Use os filtros nas colunas para investigar segmentos específicos.</span>
+          </span>
+        </div>
+        <div class="tbl-controls">
+          <button class="icon-btn" onclick="clearTableFilters()">Limpar filtros</button>
+          <button class="icon-btn" onclick="exportCustomers()">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8m0 0-2.5-2.5M8 10l2.5-2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13h10" stroke-linecap="round"/></svg>
+            Export CSV
+          </button>
+        </div>
+      </div>
+      <p id="tbl-hint" style="font-size:12px;color:var(--text3);margin-bottom:10px"></p>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr id="tbl-head">
+              <th style="width:28%;cursor:pointer;user-select:none" onclick="setSortCol(0)">Customer <span id="sh0"></span></th>
+              <th style="width:9%;cursor:pointer;user-select:none" onclick="setSortCol(6)">Country <span id="sh6"></span></th>
+              <th style="width:11%;cursor:pointer;user-select:none" onclick="setSortCol(7)">Type <span id="sh7"></span></th>
+              <th style="width:11%;cursor:pointer;user-select:none" onclick="setSortCol(1)">Status <span id="sh1"></span></th>
+              <th style="width:14%;cursor:pointer;user-select:none" onclick="setSortCol(5)">Next invoice <span id="sh5"></span></th>
+              <th style="width:12%;cursor:pointer;user-select:none" class="r" onclick="setSortCol(3)">Base amount <span id="sh3"></span></th>
+              <th style="width:8%;cursor:pointer;user-select:none" onclick="setSortCol(2)">Interval <span id="sh2"></span></th>
+            </tr>
+            <tr class="filter-row">
+              <td><input id="f-customer" placeholder="Filtrar cliente…" oninput="renderTable()"></td>
+              <td><select id="f-country" onchange="renderTable()"><option value="">Todos</option></select></td>
+              <td><select id="f-type" onchange="renderTable()"><option value="">Todos</option></select></td>
+              <td>
+                <select id="f-status" onchange="renderTable()">
+                  <option value="">Todos</option>
+                  <option value="Active">Active</option>
+                  <option value="Past due">Past due</option>
+                  <option value="Unpaid">Unpaid</option>
+                </select>
+              </td>
+              <td><input id="f-invoice" placeholder="ex: Jun" oninput="renderTable()"></td>
+              <td><input id="f-amount-min" type="number" placeholder="Mín. US$" oninput="renderTable()"></td>
+              <td>
+                <select id="f-interval" onchange="renderTable()">
+                  <option value="">Todos</option>
+                  <option value="Monthly">Monthly</option>
+                  <option value="Annual">Annual</option>
+                </select>
+              </td>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <div class="pag">
+        <button id="prev-pg" onclick="go(-1)" disabled>← Prev</button>
+        <span id="pg-info">Page 1 of 1</span>
+        <button id="next-pg" onclick="go(1)">Next →</button>
+        <span id="ct-lbl"></span>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -1167,6 +1258,7 @@ const MONTHS=["Jan 2026","Feb 2026","Mar 2026","Apr 2026","May 2026","Jun 2026",
 const MO_SHORT=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const D={rows_js}.filter(r=>r[1]!=="Cancelled");
 const COLLECTED={collected_js};
+const COLLECTED_DETAIL={collected_detail_js};
 const MRR_BY_TYPE={mrr_by_type_js};
 const PROBLEM_TOTALS={problem_tot_js};
 const BILLED_VOL={billed_js};
@@ -1177,19 +1269,8 @@ const BC={{"Active":"b-active","Past due":"b-pastdue","Unpaid":"b-unpaid"}};
 const fmt=v=>v===0?"—":(v<0?"-":"")+new Intl.NumberFormat("en-US",{{style:"currency",currency:"USD",maximumFractionDigits:0}}).format(Math.abs(v));
 const fmtS=v=>Math.abs(v)>=1000?(v<0?"-":"")+"$"+(Math.abs(v)/1000).toFixed(1)+"k":"$"+Math.round(v);
 
-let mi={today_mi},pg=1,sf="all"; // mi: 0-11=Jan-Dec, -1=Year; defaults to current month
+let mi={today_mi},pg=1; // mi: 0-11=Jan-Dec, -1=Year; defaults to current month
 const PS=15;
-
-function byStatus(){{
-  const f=sf;
-  return D.filter(r=>{{
-    if(f==="all") return true;
-    if(f==="Active") return r[1]==="Active";
-    if(f==="problem") return r[1]==="Past due"||r[1]==="Unpaid";
-
-    return true;
-  }});
-}}
 
 function prevMonth(){{if(mi===-1)setMonth(11);else if(mi>0)setMonth(mi-1);}}
 function nextMonth(){{if(mi===11)setMonth(-1);else if(mi<11)setMonth(mi+1);}}
@@ -1209,7 +1290,6 @@ function setMonth(i){{
 }}
 
 function updateAll(){{
-  sf=document.getElementById("flt").value;
   updateSelCard();
   updateCmpCard();
   pg=1; _render();
@@ -1247,11 +1327,12 @@ const TODAY_MI={today_mi}; // current month index, computed at generation time
 function expectedForMonth(i){{
   // Past/current months: all subs (they were expected to bill then)
   // Future months: active only (what we can realistically expect)
-  // Uses r[9] (smoothed monthly-equivalent), not r[4] (calendar-accurate
-  // billing spike), so Expected tracks MRR's annual/12 + monthly
-  // methodology instead of jumping whenever an annual renewal lands.
+  // Uses r[4] (calendar-accurate billing schedule: every month for
+  // Monthly subs, a single spike in the renewal month for Annual subs),
+  // so Expected reflects the actual cash-timing of each invoice instead
+  // of a smoothed monthly-equivalent.
   const subs=i<=TODAY_MI?D:D.filter(r=>r[1]==="Active");
-  return subs.reduce((s,r)=>s+r[9][i],0);
+  return subs.reduce((s,r)=>s+r[4][i],0);
 }}
 function renderExpectedChart(){{
   const mt=MONTHS.map((_,i)=>expectedForMonth(i));
@@ -1319,8 +1400,8 @@ function updateCmpCard(){{
 }}
 
 function showExpectedDetail(){{
-  // Same source/filtering as expectedForMonth(): r[9] (smoothed), with
-  // past/current months pulling from D (all non-cancelled) and future
+  // Same source/filtering as expectedForMonth(): r[4] (calendar-accurate),
+  // with past/current months pulling from D (all non-cancelled) and future
   // months restricted to Active — so the listed customers always sum to
   // exactly the "Expected" figure shown on the card.
   const isYr=mi===-1;
@@ -1329,13 +1410,13 @@ function showExpectedDetail(){{
     list=D.map(r=>{{
       let amt=0;
       MONTHS.forEach((_,i)=>{{
-        if(i<=TODAY_MI||r[1]==="Active") amt+=r[9][i];
+        if(i<=TODAY_MI||r[1]==="Active") amt+=r[4][i];
       }});
       return {{name:r[0],status:r[1],interval:r[2],amount:amt}};
     }}).filter(x=>x.amount>0);
   }}else{{
     const subs=mi<=TODAY_MI?D:D.filter(r=>r[1]==="Active");
-    list=subs.map(r=>({{name:r[0],status:r[1],interval:r[2],amount:r[9][mi]}})).filter(x=>x.amount>0);
+    list=subs.map(r=>({{name:r[0],status:r[1],interval:r[2],amount:r[4][mi]}})).filter(x=>x.amount>0);
   }}
   list.sort((a,b)=>b.amount-a.amount);
   const total=list.reduce((s,x)=>s+x.amount,0);
@@ -1345,6 +1426,23 @@ function showExpectedDetail(){{
       <span class="modal-val" style="color:var(--green)">${{fmt(x.amount)}}</span>
     </div>`).join("") || `<div class="empty">No customers</div>`;
   document.getElementById("modal-title").textContent="Expected — "+label+" ("+list.length+" customer"+(list.length!==1?"s":"")+")";
+  document.getElementById("modal-body").innerHTML=`<div class="modal-row modal-total"><span class="modal-cust">Total</span><span class="modal-val">${{fmt(total)}}</span></div>`+rowsHtml;
+  document.getElementById("cust-modal").style.display="flex";
+}}
+function showCollectedDetail(){{
+  const isYr=mi===-1;
+  const label=isYr?"Full Year 2026":MONTHS[mi];
+  const src=isYr?COLLECTED_DETAIL.flat():(COLLECTED_DETAIL[mi]||[]);
+  const agg={{}};
+  src.forEach(c=>{{agg[c.name]=(agg[c.name]||0)+c.amount;}});
+  let list=Object.entries(agg).map(([name,amount])=>({{name,amount:Math.round(amount*100)/100}}));
+  list.sort((a,b)=>b.amount-a.amount);
+  const total=list.reduce((s,x)=>s+x.amount,0);
+  const rowsHtml=list.map(x=>`<div class="modal-row">
+      <span class="modal-cust">${{x.name}}</span>
+      <span class="modal-val" style="color:var(--blue)">${{fmt(x.amount)}}</span>
+    </div>`).join("") || `<div class="empty">No customer-level data yet for this period — will populate on the next scheduled refresh.</div>`;
+  document.getElementById("modal-title").textContent="Collected — "+label+" ("+list.length+" customer"+(list.length!==1?"s":"")+")";
   document.getElementById("modal-body").innerHTML=`<div class="modal-row modal-total"><span class="modal-cust">Total</span><span class="modal-val">${{fmt(total)}}</span></div>`+rowsHtml;
   document.getElementById("cust-modal").style.display="flex";
 }}
@@ -1375,16 +1473,52 @@ function invMonth(dateStr){{
     return -1;}}catch(e){{return -1;}}
 }}
 
+function populateFilterOptions(){{
+  const countries=[...new Set(D.map(r=>r[6]).filter(Boolean))].sort((a,b)=>ctryName(a).localeCompare(ctryName(b)));
+  const types=[...new Set(D.map(r=>(r[7]||"").trim()).filter(Boolean))].sort();
+  const cSel=document.getElementById("f-country");
+  if(cSel) cSel.innerHTML='<option value="">Todos</option>'+countries.map(c=>`<option value="${{c}}">${{ctryName(c)}}</option>`).join("");
+  const tSel=document.getElementById("f-type");
+  if(tSel) tSel.innerHTML='<option value="">Todos</option>'+types.map(t=>`<option value="${{t}}">${{t}}</option>`).join("")+'<option value="__none__">Sem tipo</option>';
+}}
+
+function clearTableFilters(){{
+  ["f-customer","f-invoice","f-amount-min"].forEach(id=>{{const el=document.getElementById(id);if(el)el.value="";}});
+  ["f-country","f-type","f-status","f-interval"].forEach(id=>{{const el=document.getElementById(id);if(el)el.value="";}});
+  renderTable();
+}}
+
 function getFiltered(){{
-  const q=document.getElementById("search").value.toLowerCase();
-  const base=byStatus();
+  // Column filters (customer listing, Analytics tab)
+  const fCust=(document.getElementById("f-customer")?.value||"").toLowerCase();
+  const fCtry=document.getElementById("f-country")?.value||"";
+  const fType=document.getElementById("f-type")?.value||"";
+  const fStatus=document.getElementById("f-status")?.value||"";
+  const fInv=(document.getElementById("f-invoice")?.value||"").toLowerCase();
+  const fMinRaw=document.getElementById("f-amount-min")?.value;
+  const fMin=fMinRaw!==undefined&&fMinRaw!==""?parseFloat(fMinRaw):NaN;
+  const fInterval=document.getElementById("f-interval")?.value||"";
+
   // Month view: show customers with a projected amount in this month.
   // proj[mi] already encodes the right months per subscription (every
   // month for Monthly, just the renewal month for Annual) — next_invoice
   // is a single forward-looking date and can't represent a recurring
   // monthly schedule, so it's only used for display, not filtering.
-  const byM=mi>=0?base.filter(r=>r[4][mi]>0):base;
-  const filtered=byM.filter(r=>!q||r[0].toLowerCase().includes(q));
+  const byM=mi>=0?D.filter(r=>r[4][mi]>0):D;
+  const filtered=byM.filter(r=>{{
+    if(fCust&&!r[0].toLowerCase().includes(fCust)) return false;
+    if(fCtry&&r[6]!==fCtry) return false;
+    if(fType){{
+      const t=(r[7]||"").trim();
+      if(fType==="__none__"){{ if(t) return false; }}
+      else if(t!==fType) return false;
+    }}
+    if(fStatus&&r[1]!==fStatus) return false;
+    if(fInv&&!String(r[5]||"").toLowerCase().includes(fInv)) return false;
+    if(!isNaN(fMin)&&!(r[3]>=fMin)) return false;
+    if(fInterval&&r[2]!==fInterval) return false;
+    return true;
+  }});
   return filtered.slice().sort((a,b)=>{{
     let va,vb;
     if(sortCol===3){{va=a[3];vb=b[3];}}
@@ -1427,18 +1561,13 @@ const CTRY_NAMES={{"US":"United States","AU":"Australia","BR":"Brazil","ZA":"Sou
 function ctryName(c){{return CTRY_NAMES[c]||(c||"Unknown");}}
 function _dl(blob,fname){{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1e3);}}
 function _csv(hdrs,rows){{const q=v=>'"'+String(v).split('"').join('""')+'"';return new Blob([[hdrs,...rows].map(r=>r.map(q).join(',')).join(NL)],{{type:'text/csv'}});}}
-function exportCurrentPage(){{document.getElementById('page-analytics').style.display!=='none'?exportAnalytics():exportOverview();}}
-function exportOverview(){{
+function exportCustomers(){{
   const mo=mi===-1?'FullYear2026':MONTHS[mi].replace(' ','');
   const rows=getFiltered().map(r=>{{const ann=r[2]==='Annual'?r[3]:r[3]*12;return [r[0],r[1],r[2],r[3],ann,r[5]||'',ctryName(r[6]||''),r[7]||''];}});
   _dl(_csv(['Customer','Status','Interval','Base USD','Annual USD','Next Invoice','Country','Type'],rows),'floori-customers-'+mo+'.csv');
 }}
-function exportAnalytics(){{
-  const byC={{}};D.forEach(r=>{{const k=r[6]||'Unknown';const m=r[1]==='Active'?(r[2]==='Annual'?r[3]/12:r[3]):0;if(!byC[k])byC[k]={{m:0,n:0,a:0}};byC[k].m+=m;byC[k].n++;if(r[1]==='Active')byC[k].a++;}});
-  const tot=Object.values(byC).reduce((s,v)=>s+v.m,0);
-  const rows=Object.entries(byC).sort((a,b)=>b[1].m-a[1].m).map(([c,v])=>[c,ctryName(c),v.n,v.a,v.m.toFixed(2),tot>0?((v.m/tot)*100).toFixed(1):'0.0']);
-  _dl(_csv(['Code','Country','Customers','Active','MRR/mo','Share%','Top Type'],rows),'floori-analytics-by-country.csv');
-}}
+
+populateFilterOptions();
 
 (function(){{
   const now=new Date();
@@ -1562,6 +1691,13 @@ function renderAnalytics(){{
   _makePie("pie-count",pieCount,v=>v+" cust.");
   _makePie("pie-mrr",pieMrr,v=>"$"+v.toLocaleString()+"/mo");
 }}
+
+// ── Info tooltips (tap-to-toggle for touch devices) ────────────────────────
+document.addEventListener("click",function(e){{
+  const btn=e.target.closest(".info-btn");
+  document.querySelectorAll(".info-btn.show").forEach(b=>{{if(b!==btn) b.classList.remove("show");}});
+  if(btn) btn.classList.toggle("show");
+}});
 </script>
 <div id="cust-modal" class="modal-overlay" onclick="closeCustModal(event)">
   <div class="modal-box">
@@ -1638,7 +1774,7 @@ if __name__ == "__main__":
     try:
         (_legacy_metrics, monthly_collected, monthly_billed,
          monthly_credits, monthly_refunds, monthly_net,
-         today_invoices_raw) = fetch_invoice_data()
+         today_invoices_raw, monthly_collected_detail) = fetch_invoice_data()
         print("  OK collected: " + str(["$"+f"{round(x):,}" for x in monthly_collected]))
         print("  OK billed:    " + str(["$"+f"{round(x):,}" for x in monthly_billed]))
         # today_invoices may come from fetch_invoice_data; keep for display
@@ -1648,13 +1784,14 @@ if __name__ == "__main__":
         print("  WARNING: invoice data fetch failed: " + str(e))
         monthly_collected = monthly_billed = monthly_credits = [0.0] * 12
         monthly_refunds = monthly_net = [0.0] * 12
+        monthly_collected_detail = [[] for _ in range(12)]
         errors.append("Invoice data: " + str(e))
 
     # ── 5. Render + write ────────────────────────────────────────────────────
     print("\n[5/6] Rendering dashboard...")
     synced = datetime.now(timezone.utc).strftime("%b %d, %Y at %H:%M UTC")
     try:
-        html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed, monthly_credits, monthly_refunds, monthly_net)
+        html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed, monthly_credits, monthly_refunds, monthly_net, monthly_collected_detail)
         with open("index.html", "w", encoding="utf-8") as f:
             f.write(html)
         print("  OK index.html written (" + f"{len(html):,}" + " bytes)")
