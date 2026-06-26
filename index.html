@@ -148,7 +148,7 @@ thead th .sort-ind{font-size:10px;margin-left:2px;opacity:.8}
   <div class="topbar">
     <div>
       <h1><span class="si">◈</span> Floori.io — Revenue Dashboard</h1>
-      <p class="synced">Last synced: Jun 26, 2026 at 01:35 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
+      <p class="synced">Last synced: Jun 26, 2026 at 01:43 UTC · Auto-updated weekdays at 9:30 AM BRT</p>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <div class="tabs" style="margin-bottom:0">
@@ -414,11 +414,11 @@ const TODAY_MI=5; // current month index, computed at generation time
 function expectedForMonth(i){
   // Past/current months: all subs (they were expected to bill then)
   // Future months: active only (what we can realistically expect)
-  // Uses r[9] (smoothed monthly-equivalent), not r[4] (calendar-accurate
-  // billing spike), so Expected tracks MRR's annual/12 + monthly
-  // methodology instead of jumping whenever an annual renewal lands.
+  // Uses r[4] (calendar-accurate billing array) — same array MRR/ARR cards
+  // now use (updateMetricsCards), so Expected = MRR(period) + ARR(period)
+  // exactly, for any month or Year.
   const subs=i<=TODAY_MI?D:D.filter(r=>r[1]==="Active");
-  return subs.reduce((s,r)=>s+r[9][i],0);
+  return subs.reduce((s,r)=>s+r[4][i],0);
 }
 function renderExpectedChart(){
   const mt=MONTHS.map((_,i)=>expectedForMonth(i));
