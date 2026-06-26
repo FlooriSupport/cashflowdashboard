@@ -1011,14 +1011,14 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
   <div id="page-overview">
   <div class="metrics">
     <div class="mc">
-      <div class="lbl" id="mrr-lbl">MRR</div>
-      <div class="val" style="color:var(--green)" id="mrr-val">—</div>
-      <div class="sub" id="mrr-sub"></div>
+      <div class="lbl">MRR</div>
+      <div class="val" style="color:var(--green)">${metrics["total_mrr"]:,.0f}</div>
+      <div class="sub">${metrics["monthly_mrr"]:,.0f} monthly + ${metrics["annual_mrr"]:,.0f} annual-equiv</div>
     </div>
     <div class="mc">
-      <div class="lbl" id="arr-lbl">ARR</div>
-      <div class="val" id="arr-val">—</div>
-      <div class="sub" id="arr-sub"></div>
+      <div class="lbl">ARR</div>
+      <div class="val">${metrics["total_mrr"]*12:,.0f}<span style="font-size:13px;font-weight:400;color:var(--text3)">/yr</span></div>
+      <div class="sub">{metrics["annual_count"]} annual + {metrics["monthly_count"]} monthly plans</div>
     </div>
     <div class="mc">
       <div class="lbl">Recent collected</div>
@@ -1197,7 +1197,6 @@ function setMonth(i){{
 
 function updateAll(){{
   sf=document.getElementById("flt").value;
-  updateMetricsCards();
   updateSelCard();
   updateCmpCard();
   pg=1; _render();
@@ -1235,11 +1234,11 @@ const TODAY_MI={today_mi}; // current month index, computed at generation time
 function expectedForMonth(i){{
   // Past/current months: all subs (they were expected to bill then)
   // Future months: active only (what we can realistically expect)
-  // Uses r[4] (calendar-accurate billing array) — same array MRR/ARR cards
-  // now use (updateMetricsCards), so Expected = MRR(period) + ARR(period)
-  // exactly, for any month or Year.
+  // Uses r[9] (smoothed monthly-equivalent), not r[4] (calendar-accurate
+  // billing spike), so Expected tracks MRR's annual/12 + monthly
+  // methodology instead of jumping whenever an annual renewal lands.
   const subs=i<=TODAY_MI?D:D.filter(r=>r[1]==="Active");
-  return subs.reduce((s,r)=>s+r[4][i],0);
+  return subs.reduce((s,r)=>s+r[9][i],0);
 }}
 function renderExpectedChart(){{
   const mt=MONTHS.map((_,i)=>expectedForMonth(i));
@@ -1304,48 +1303,6 @@ function updateCmpCard(){{
     diffEl.innerHTML=`<span style="color:var(--red);font-weight:500">${{fmt(diff)}}</span> <span style="color:var(--text3)">(${{pct}}% of expected collected)</span>`;
     diffEl.style.background="var(--red-bg)";
   }}
-}}
-
-function updateMetricsCards(){{
-  // MRR = literal sum of Monthly-interval customers, ARR = literal sum of
-  // Annual-interval customers — no blending between the two. Both use r[4]
-  // (calendar-accurate billing projection, same array the customer table's
-  // month filter and Revenue-at-risk use), so they react to the month/Year
-  // picker like every other card: pick a month to see what billed that
-  // month, pick Year to see the full-year total.
-  const isYr=mi===-1;
-  const label=isYr?"Full Year 2026":MONTHS[mi];
-  const billedForMonth=(interval,i)=>{{
-    const activeOnly=i>TODAY_MI;
-    const subs=D.filter(r=>r[2]===interval&&(!activeOnly||r[1]==="Active"));
-    return subs.reduce((s,r)=>s+r[4][i],0);
-  }};
-  const countForMonth=(interval,i)=>{{
-    const activeOnly=i>TODAY_MI;
-    return D.filter(r=>r[2]===interval&&(!activeOnly||r[1]==="Active")&&r[4][i]>0).length;
-  }};
-  const countForYear=interval=>D.filter(r=>r[2]===interval&&MONTHS.some((_,i)=>{{
-    const activeOnly=i>TODAY_MI;
-    return (!activeOnly||r[1]==="Active")&&r[4][i]>0;
-  }})).length;
-  let mrr,arr,mCount,aCount;
-  if(isYr){{
-    mrr=MONTHS.reduce((s,_,i)=>s+billedForMonth("Monthly",i),0);
-    arr=MONTHS.reduce((s,_,i)=>s+billedForMonth("Annual",i),0);
-    mCount=countForYear("Monthly");
-    aCount=countForYear("Annual");
-  }}else{{
-    mrr=billedForMonth("Monthly",mi);
-    arr=billedForMonth("Annual",mi);
-    mCount=countForMonth("Monthly",mi);
-    aCount=countForMonth("Annual",mi);
-  }}
-  if(document.getElementById("mrr-lbl")) document.getElementById("mrr-lbl").textContent="MRR — "+label;
-  if(document.getElementById("arr-lbl")) document.getElementById("arr-lbl").textContent="ARR — "+label;
-  if(document.getElementById("mrr-val")) document.getElementById("mrr-val").textContent=mrr>0?fmt(mrr):"—";
-  if(document.getElementById("arr-val")) document.getElementById("arr-val").textContent=arr>0?fmt(arr):"—";
-  if(document.getElementById("mrr-sub")) document.getElementById("mrr-sub").textContent=mCount+" monthly customer"+(mCount!==1?"s":"");
-  if(document.getElementById("arr-sub")) document.getElementById("arr-sub").textContent=aCount+" annual customer"+(aCount!==1?"s":"");
 }}
 
 let sortCol=3,sortDir=-1; // default: base amount descending
