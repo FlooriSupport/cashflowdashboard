@@ -1051,5 +1051,201 @@
       }
     ]
   },
-  "__version__": "v2"
+  "__version__": "v2",
+  "2026-06": {
+    "collected": 25247.13,
+    "billed": 39427.26,
+    "credits": 14180.13,
+    "count": 50,
+    "customers": [
+      {
+        "name": "Pravada",
+        "amount": 599.0
+      },
+      {
+        "name": "Douglas Wagoner",
+        "amount": 49.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Rugs for Good Pty LTD",
+        "amount": 1633.01
+      },
+      {
+        "name": "Angelo A Ayala Jr",
+        "amount": 800.0
+      },
+      {
+        "name": "Mike McDermott",
+        "amount": 49.0
+      },
+      {
+        "name": "Acsento",
+        "amount": 416.0
+      },
+      {
+        "name": "LA DISTRIBUIDORA DE CASIMIRES S.A DE C.V.",
+        "amount": 295.0
+      },
+      {
+        "name": "MARBLELIFE",
+        "amount": 249.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Adriana reis",
+        "amount": 156.25
+      },
+      {
+        "name": "Transylvania Concrete Coatings",
+        "amount": 199.0
+      },
+      {
+        "name": "JetRock Inc",
+        "amount": 1166.0
+      },
+      {
+        "name": "joseph fletcher",
+        "amount": 150.0
+      },
+      {
+        "name": "ViaStar",
+        "amount": 350.0
+      },
+      {
+        "name": "Exclusive Rugs By Bijan Pty Ltd.",
+        "amount": 207.0
+      },
+      {
+        "name": "Chad Paulson",
+        "amount": 1700.0
+      },
+      {
+        "name": "Stauf USA",
+        "amount": 299.0
+      },
+      {
+        "name": "Jason Larsen",
+        "amount": 1749.5
+      },
+      {
+        "name": "Triff",
+        "amount": 400.0
+      },
+      {
+        "name": "joseph fletcher",
+        "amount": 150.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Lance Jensen",
+        "amount": 49.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Garage Flooring Pros",
+        "amount": 3198.0
+      },
+      {
+        "name": "Originate",
+        "amount": 404.96
+      },
+      {
+        "name": "Alexander Marck",
+        "amount": 499.0
+      },
+      {
+        "name": "The Carpet Company",
+        "amount": 585.15
+      },
+      {
+        "name": "Final Specs Flooring LLC",
+        "amount": 355.0
+      },
+      {
+        "name": "Global Distribui\u00e7\u00e3o de Bens de Consumo Ltda",
+        "amount": 1479.5
+      },
+      {
+        "name": "Eva-last Hong Kong",
+        "amount": 200.0
+      },
+      {
+        "name": "Next day flooring",
+        "amount": 147.16
+      },
+      {
+        "name": "Stile Societ\u00e0 Cooperativa",
+        "amount": 294.31
+      },
+      {
+        "name": "Maison sib",
+        "amount": 147.16
+      },
+      {
+        "name": "Angelo A Ayala Jr",
+        "amount": 1800.0
+      },
+      {
+        "name": "Camila Ordonez",
+        "amount": 50.0
+      },
+      {
+        "name": "Tenda dos Tapetes",
+        "amount": 300.0
+      },
+      {
+        "name": "Bona US",
+        "amount": 3225.0
+      },
+      {
+        "name": "Sophie Lupien",
+        "amount": 233.0
+      },
+      {
+        "name": "Brett D Wells",
+        "amount": 49.0
+      },
+      {
+        "name": "Floors Adelaide | Floorworldusa",
+        "amount": 149.0
+      },
+      {
+        "name": "Luis Riguard",
+        "amount": 49.0
+      },
+      {
+        "name": "San Marcos Revestimentos Cer\u00e2micos Ltda (Cejatel)",
+        "amount": 560.13
+      },
+      {
+        "name": "Bazaar Velvet",
+        "amount": 150.0
+      },
+      {
+        "name": "EDIFICOR S.R.L",
+        "amount": 207.0
+      },
+      {
+        "name": "MARBLELIFE",
+        "amount": 249.0
+      }
+    ]
+  }
 }
