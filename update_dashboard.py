@@ -384,6 +384,80 @@ def build_rows(subs, invoice_avg_by_sub=None):
     return rows
 
 
+def build_churn_events(subs, invoice_avg_by_sub=None):
+    """
+    One event per subscription that ENDED within Jan–Dec 2026.
+
+    Churn is keyed on ended_at (when billing actually stopped), not
+    canceled_at (when the customer clicked cancel). A customer who cancels
+    in April but stays paid through June churns in June — that matches the
+    cash timing of Expected/Collected, which are also about money moving.
+
+    MRR impact mirrors _compute_mrr_from_rows(): Annual subs contribute
+    amount/12, Monthly subs their full amount, so the total is directly
+    comparable to the MRR card.
+
+    Per-subscription, not per-customer, so partial churn counts: a customer
+    who cancels one of two subscriptions produces an event for the
+    cancelled one while still showing as Active in build_rows().
+
+    Note this deliberately does NOT reuse build_rows() output — build_rows
+    drops cancelled subscriptions entirely (`use = non_cancelled or ...`),
+    which is exactly the data churn needs.
+
+    Returns: list[{name, interval, mrr, mi}], sorted by mrr descending.
+    """
+    events = []
+    for sub in subs:
+        try:
+            sub_dict = sub.to_dict()
+        except Exception:
+            continue
+
+        ended = sub_dict.get("ended_at")
+        if not ended:
+            continue
+        try:
+            mi = _month_index(datetime.fromtimestamp(int(ended), tz=timezone.utc))
+        except Exception:
+            continue
+        if not (0 <= mi <= 11):
+            continue
+
+        cust = sub.customer
+        if isinstance(cust, str):
+            display = cust
+        else:
+            display = ((getattr(cust, "name", "") or "").strip() or
+                       (getattr(cust, "email", "") or "").strip() or
+                       (getattr(cust, "id", "") or ""))
+        if not display:
+            continue
+
+        items_data = sub_dict.get("items", {}).get("data", [])
+        item     = items_data[0] if items_data else {}
+        price    = item.get("price", {}) or {}
+        currency = (price.get("currency") or "usd").lower()
+        rec      = (price.get("recurring") or {})
+        interval = "Annual" if rec.get("interval") == "year" else "Monthly"
+        total_cents = sum(
+            ((it.get("price") or {}).get("unit_amount") or 0) * ((it.get("quantity") or 1))
+            for it in (items_data or [item])
+        )
+        nominal_usd = round(_to_usd(total_cents, currency), 2)
+        sub_id  = getattr(sub, "id", "") or ""
+        inv_avg = (invoice_avg_by_sub or {}).get(sub_id)
+        amount_usd = round(inv_avg, 2) if inv_avg is not None else nominal_usd
+        if amount_usd <= 0:
+            continue
+
+        mrr = round(amount_usd / 12, 2) if interval == "Annual" else amount_usd
+        events.append({"name": display, "interval": interval, "mrr": mrr, "mi": mi})
+
+    events.sort(key=lambda e: e["mrr"], reverse=True)
+    return events
+
+
 def compute_totals(rows):
     totals  = [0.0] * 12
     active  = [0.0] * 12
@@ -785,13 +859,15 @@ def _fetch_refund_volume(monthly_collected: list = None):
 
 
 
-def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed=None, monthly_credits=None, monthly_refunds=None, monthly_net=None, monthly_collected_detail=None):
+def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed=None, monthly_credits=None, monthly_refunds=None, monthly_net=None, monthly_collected_detail=None, churn_events=None):
     _now             = datetime.now(timezone.utc)
     today_mi         = (_now.month - 1) if _now.year == 2026 else (12 if _now.year > 2026 else 0)
     rows_js          = json.dumps(rows, ensure_ascii=False)
     totals_js        = json.dumps(totals)
     collected_js     = json.dumps(monthly_collected)
     collected_detail_js = json.dumps(monthly_collected_detail or [[] for _ in range(12)], ensure_ascii=False)
+    churn_js         = json.dumps(churn_events or [], ensure_ascii=False)
+    mrr_total_js     = json.dumps(round(metrics.get("total_mrr", 0) or 0, 2))
     mrr_by_type_js   = json.dumps(metrics.get("mrr_by_type", {}), separators=(",",":"))
     problem_tot_js   = json.dumps([round(x,2) for x in problem_tot], separators=(",",":"))
     billed_js        = json.dumps([round(x,2) for x in (monthly_billed  or [0]*12)], separators=(",",":"))
@@ -912,7 +988,7 @@ body{{font-family:var(--font);background:var(--bg3);color:var(--text);font-size:
 .modal-tag{{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.03em}}
 .modal-val{{font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}}
 /* row2 */
-.row2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.5rem}}
+.row2{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:1.5rem}}
 .kv{{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--border2);font-size:13px}}
 .kv:last-child{{border-bottom:none}}
 .kv .k{{color:var(--text2)}}
@@ -1125,6 +1201,26 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
         <span class="k">Unpaid</span><span class="v" id="risk-unpaid" style="color:var(--red)">—</span>
       </div>
     </div>
+    <!-- Churned -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+        <div class="title-row">
+          <div class="card-title" style="color:var(--text);margin-bottom:0" id="churn-title">Churned</div>
+          <span class="info-btn" tabindex="0" role="button" aria-label="What is Churned?">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+            <span class="info-tip">MRR lost from subscriptions that stopped billing in the selected period, keyed on the date billing actually ended (not the date the customer clicked cancel). Annual subscriptions count as amount/12, matching the MRR card. A customer who cancels one of several subscriptions appears here for the cancelled one while still counting as Active elsewhere.</span>
+          </span>
+        </div>
+        <span style="font-size:20px;font-weight:700;color:var(--red)" id="churn-amt">—</span>
+      </div>
+      <div id="churn-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;max-height:190px;overflow-y:auto"></div>
+      <div class="kv" style="border-top:0.5px solid var(--border2);padding-top:8px">
+        <span class="k">Subscriptions ended</span><span class="v" id="churn-count" style="color:var(--red)">—</span>
+      </div>
+      <div class="kv">
+        <span class="k">Churn rate</span><span class="v" id="churn-rate" style="color:var(--red)">—</span>
+      </div>
+    </div>
   </div>
 
   <div class="card" style="margin-bottom:1.5rem">
@@ -1256,6 +1352,8 @@ const MO_SHORT=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov
 const D={rows_js}.filter(r=>r[1]!=="Cancelled");
 const COLLECTED={collected_js};
 const COLLECTED_DETAIL={collected_detail_js};
+const CHURN={churn_js};
+const MRR_TOTAL={mrr_total_js};
 const MRR_BY_TYPE={mrr_by_type_js};
 const PROBLEM_TOTALS={problem_tot_js};
 const BILLED_VOL={billed_js};
@@ -1290,7 +1388,36 @@ function setMonth(i){{
 function updateAll(){{
   updateSelCard();
   updateCmpCard();
+  updateChurnCard();
   pg=1; _render();
+}}
+
+function updateChurnCard(){{
+  // MRR lost to subscriptions that stopped billing in the selected period.
+  // CHURN events are keyed on ended_at and already carry their MRR impact
+  // (Annual = amount/12), so this only filters and sums — see
+  // build_churn_events() for the methodology.
+  const isYr=mi===-1;
+  const evs=isYr?CHURN:CHURN.filter(e=>e.mi===mi);
+  const total=evs.reduce((s,e)=>s+e.mrr,0);
+  const label=isYr?"Full Year 2026":MONTHS[mi];
+  const titleEl=document.getElementById("churn-title");
+  if(titleEl) titleEl.textContent="Churned — "+label;
+  const amtEl=document.getElementById("churn-amt");
+  if(!amtEl) return;
+  amtEl.textContent=total>0?"-"+fmtS(total):"—";
+  document.getElementById("churn-list").innerHTML=evs.length?evs.map(e=>`
+    <div style="display:flex;align-items:baseline;gap:6px">
+      <span style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto" title="${{e.name}}">${{e.name}}</span>
+      <span style="font-size:10px;color:var(--text3);flex-shrink:0">${{e.interval.toLowerCase()}}</span>
+      <span style="flex:1;border-bottom:1px dotted var(--text3);min-width:12px;margin-bottom:3px"></span>
+      <span style="font-size:12px;color:var(--red);font-weight:500;flex-shrink:0">-${{fmtS(e.mrr)}}</span>
+    </div>`).join(""):'<div style="font-size:12px;color:var(--text3)">No churn this period</div>';
+  document.getElementById("churn-count").textContent=evs.length?String(evs.length):"—";
+  // Rate is against current total MRR — a "how big is this loss relative to
+  // the book today" reading, not a point-in-time historical churn rate.
+  const rate=MRR_TOTAL>0?(total/MRR_TOTAL)*100:0;
+  document.getElementById("churn-rate").textContent=total>0?rate.toFixed(1)+"% of MRR":"—";
 }}
 
 function updateSelCard(){{
@@ -1758,6 +1885,16 @@ if __name__ == "__main__":
     print(f"  MRR ${metrics['total_mrr']:,.0f}  (monthly ${metrics['monthly_mrr']:,.2f}  "
           f"+ annual equiv ${metrics['annual_mrr']:,.2f})")
 
+    # Churn events (subscriptions that ended within 2026) — derived from the
+    # same `subs` pull, since build_rows() discards cancelled subscriptions.
+    try:
+        churn_events = build_churn_events(subs, invoice_avg_by_sub)
+        _churn_total = sum(e["mrr"] for e in churn_events)
+        print(f"  OK churn: {len(churn_events)} events, ${_churn_total:,.0f} MRR lost YTD")
+    except Exception as e:
+        print("  WARNING: churn events failed: " + str(e))
+        churn_events = []
+
     # ── 4. Recent invoices + collected cache ─────────────────────────────────
     print("\n[4/6] Fetching all 2026 invoice data...")
     today_invoices = []  # populated inside fetch_invoice_data below
@@ -1781,7 +1918,7 @@ if __name__ == "__main__":
     print("\n[5/6] Rendering dashboard...")
     synced = datetime.now(timezone.utc).strftime("%b %d, %Y at %H:%M UTC")
     try:
-        html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed, monthly_credits, monthly_refunds, monthly_net, monthly_collected_detail)
+        html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed, monthly_credits, monthly_refunds, monthly_net, monthly_collected_detail, churn_events)
         with open("index.html", "w", encoding="utf-8") as f:
             f.write(html)
         print("  OK index.html written (" + f"{len(html):,}" + " bytes)")
