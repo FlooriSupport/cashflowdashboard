@@ -1,0 +1,9 @@
+{
+  "name": "cashflowdashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Floori.io Stripe revenue dashboard (password-gated static site)",
+  "dependencies": {
+    "@vercel/edge": "^1.2.1"
+  }
+}
