@@ -8,7 +8,7 @@ import { next } from '@vercel/edge';
 const COOKIE = 'floori_dash';
 
 export default async function middleware(request) {
-  const pin = process.env.DASHBOARD_PIN;
+  const pin = process.env.DASHBOARD_PIN || process.env.DASHBOARD_PASSWORD;
   const url = new URL(request.url);
 
   // Fail closed: if no PIN is configured, serve nothing.
