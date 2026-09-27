@@ -405,8 +405,32 @@ def build_churn_events(subs, invoice_avg_by_sub=None):
     drops cancelled subscriptions entirely (`use = non_cancelled or ...`),
     which is exactly the data churn needs.
 
+    Plan conversions are NOT churn. A customer who moves annual→monthly (or
+    upgrades a plan) ends one subscription and starts another; counting the
+    ending one produces a phantom churn event for a customer who never left.
+    Bona US did exactly this in Feb 2026 and went on paying $3,225/mo through
+    August while showing on the churn list. So: skip the event when the same
+    customer still holds a live (non-cancelled) subscription.
+
     Returns: list[{name, interval, mrr, mi}], sorted by mrr descending.
     """
+    # Customers holding at least one still-live subscription. A subscription
+    # is live if it has no ended_at and its status isn't a cancelled variant.
+    live_customers = set()
+    for sub in subs:
+        try:
+            sd = sub.to_dict()
+        except Exception:
+            continue
+        if sd.get("ended_at"):
+            continue
+        if stripe_status_to_label(sd.get("status")) == "Cancelled":
+            continue
+        c = sub.customer
+        cid = c if isinstance(c, str) else (getattr(c, "id", "") or "")
+        if cid:
+            live_customers.add(cid)
+
     events = []
     for sub in subs:
         try:
@@ -416,6 +440,12 @@ def build_churn_events(subs, invoice_avg_by_sub=None):
 
         ended = sub_dict.get("ended_at")
         if not ended:
+            continue
+
+        # Plan conversion / upgrade, not churn — customer is still billing.
+        _c = sub.customer
+        _cid = _c if isinstance(_c, str) else (getattr(_c, "id", "") or "")
+        if _cid and _cid in live_customers:
             continue
         try:
             mi = _month_index(datetime.fromtimestamp(int(ended), tz=timezone.utc))
@@ -761,6 +791,76 @@ def fetch_invoice_data():
     return (metrics, mc, mb, mcr, refunds_arr, net_arr, today_payments, mcd)
 
 
+def fetch_open_receivables():
+    """
+    Real accounts receivable: invoices that were issued and have NOT been paid.
+
+    fetch_invoice_data() deliberately passes status="paid", so every other
+    dashboard figure is blind to unpaid money — "Billed" there is really the
+    gross total of *paid* invoices, and the billed-minus-collected delta it
+    stores as "credits" is discounts applied to invoices that did settle, not
+    debt. Nothing in the dashboard has ever shown what customers actually owe.
+
+    This pulls the other side: status "open" (issued, awaiting payment) and
+    "uncollectible" (written off). Draft and void invoices are excluded — a
+    draft was never issued, and a void was retracted.
+
+    Amount owed is `amount_remaining`, not `total`: a partially paid invoice
+    only owes the balance.
+
+    Returns (rows, total_usd, by_status) where rows is
+    list[{name, amount, status, due, age_days, invoice_id}] sorted by amount.
+    """
+    rows = []
+    now = datetime.now(timezone.utc)
+    for status in ("open", "uncollectible"):
+        params = {"status": status, "limit": 100, "expand": ["data.customer"]}
+        while True:
+            try:
+                page = stripe.Invoice.list(**params)
+            except Exception as e:
+                print(f"  Warning: receivables fetch failed for '{status}': {e}")
+                break
+            for inv in page.data:
+                try:
+                    d = inv.to_dict()
+                    currency = (d.get("currency") or "usd").lower()
+                    owed = _to_usd(d.get("amount_remaining", 0) or 0, currency)
+                    if owed <= 0:
+                        continue
+                    cust = d.get("customer")
+                    if isinstance(cust, dict):
+                        name = ((cust.get("name") or "").strip() or
+                                (cust.get("email") or "").strip() or
+                                (cust.get("id") or ""))
+                    else:
+                        name = (d.get("customer_name") or d.get("customer_email")
+                                or str(cust or "Unknown"))
+                    due_ts = d.get("due_date") or d.get("created") or 0
+                    due_dt = (datetime.fromtimestamp(int(due_ts), tz=timezone.utc)
+                              if due_ts else None)
+                    rows.append({
+                        "name":       name,
+                        "amount":     owed,
+                        "status":     status,
+                        "due":        due_dt.strftime("%b %d, %Y") if due_dt else "",
+                        "age_days":   (now - due_dt).days if due_dt else 0,
+                        "invoice_id": d.get("id", ""),
+                    })
+                except Exception:
+                    continue
+            if not page.has_more:
+                break
+            params["starting_after"] = page.data[-1].id
+
+    rows.sort(key=lambda r: r["amount"], reverse=True)
+    total = round(sum(r["amount"] for r in rows), 2)
+    by_status = {}
+    for r in rows:
+        by_status[r["status"]] = round(by_status.get(r["status"], 0.0) + r["amount"], 2)
+    return rows, total, by_status
+
+
 def _compute_mrr_from_invoices(latest_by_sub: dict, current_mi: int) -> dict:
     """
     Compute MRR/ARR from the latest paid invoice per subscription.
@@ -859,7 +959,7 @@ def _fetch_refund_volume(monthly_collected: list = None):
 
 
 
-def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed=None, monthly_credits=None, monthly_refunds=None, monthly_net=None, monthly_collected_detail=None, churn_events=None):
+def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed=None, monthly_credits=None, monthly_refunds=None, monthly_net=None, monthly_collected_detail=None, churn_events=None, receivables=None, receivables_total=0.0, receivables_by_status=None):
     _now             = datetime.now(timezone.utc)
     today_mi         = (_now.month - 1) if _now.year == 2026 else (12 if _now.year > 2026 else 0)
     rows_js          = json.dumps(rows, ensure_ascii=False)
@@ -867,6 +967,9 @@ def render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_in
     collected_js     = json.dumps(monthly_collected)
     collected_detail_js = json.dumps(monthly_collected_detail or [[] for _ in range(12)], ensure_ascii=False)
     churn_js         = json.dumps(churn_events or [], ensure_ascii=False)
+    recv_js          = json.dumps(receivables or [], ensure_ascii=False)
+    recv_total_js    = json.dumps(round(receivables_total or 0.0, 2))
+    recv_status_js   = json.dumps(receivables_by_status or {}, ensure_ascii=False)
     mrr_total_js     = json.dumps(round(metrics.get("total_mrr", 0) or 0, 2))
     mrr_by_type_js   = json.dumps(metrics.get("mrr_by_type", {}), separators=(",",":"))
     problem_tot_js   = json.dumps([round(x,2) for x in problem_tot], separators=(",",":"))
@@ -1200,6 +1303,15 @@ thead th .sort-ind{{font-size:10px;margin-left:2px;opacity:.8}}
       <div class="kv">
         <span class="k">Unpaid</span><span class="v" id="risk-unpaid" style="color:var(--red)">—</span>
       </div>
+      <div class="kv" style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+        <span class="k">Actually owed
+          <span class="info-btn" tabindex="0" role="button" aria-label="What is Actually owed?">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><line x1="8" y1="7.2" x2="8" y2="11" stroke-linecap="round"/><circle cx="8" cy="5.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+            <span class="info-tip">Real accounts receivable: the unpaid balance on invoices Stripe has actually issued (status open or uncollectible). Every other figure on this dashboard is built from paid invoices only, so this is the one number that reflects money owed rather than money projected. Past due / Unpaid above are subscription <em>statuses</em> multiplied by run-rate, not debt.</span>
+          </span>
+        </span>
+        <span class="v" id="risk-owed" style="color:var(--red)">—</span>
+      </div>
     </div>
     <!-- Churned -->
     <div class="card">
@@ -1353,6 +1465,9 @@ const D={rows_js}.filter(r=>r[1]!=="Cancelled");
 const COLLECTED={collected_js};
 const COLLECTED_DETAIL={collected_detail_js};
 const CHURN={churn_js};
+const RECEIVABLES={recv_js};
+const RECEIVABLES_TOTAL={recv_total_js};
+const RECEIVABLES_BY_STATUS={recv_status_js};
 const MRR_TOTAL={mrr_total_js};
 const MRR_BY_TYPE={mrr_by_type_js};
 const PROBLEM_TOTALS={problem_tot_js};
@@ -1445,6 +1560,8 @@ function updateSelCard(){{
       </div>`).join(""):'<div style="font-size:12px;color:var(--text3)">No accounts at risk this period</div>';
     document.getElementById("risk-pastdue").textContent=pdAmt>0?fmtS(pdAmt)+" · "+pastDueRows.filter(r=>amtFor(r)>0).length+" cust.":"—";
     document.getElementById("risk-unpaid").textContent=unpAmt>0?fmtS(unpAmt)+" · "+unpaidRows.filter(r=>amtFor(r)>0).length+" cust.":"—";
+    const owedEl=document.getElementById("risk-owed");
+    if(owedEl) owedEl.textContent=RECEIVABLES_TOTAL>0?fmtS(RECEIVABLES_TOTAL)+" · "+RECEIVABLES.length+" inv.":"—";
   }}
 }}
 
@@ -1885,6 +2002,17 @@ if __name__ == "__main__":
     print(f"  MRR ${metrics['total_mrr']:,.0f}  (monthly ${metrics['monthly_mrr']:,.2f}  "
           f"+ annual equiv ${metrics['annual_mrr']:,.2f})")
 
+    # Real accounts receivable — the only place unpaid invoices are pulled.
+    # Every other figure on this dashboard comes from status="paid" invoices.
+    try:
+        receivables, receivables_total, receivables_by_status = fetch_open_receivables()
+        print(f"  OK receivables: {len(receivables)} unpaid invoices, "
+              f"${receivables_total:,.2f} outstanding {receivables_by_status}")
+    except Exception as e:
+        print("  WARNING: receivables fetch failed: " + str(e))
+        receivables, receivables_total, receivables_by_status = [], 0.0, {}
+        errors.append("Receivables: " + str(e))
+
     # Churn events (subscriptions that ended within 2026) — derived from the
     # same `subs` pull, since build_rows() discards cancelled subscriptions.
     try:
@@ -1918,7 +2046,7 @@ if __name__ == "__main__":
     print("\n[5/6] Rendering dashboard...")
     synced = datetime.now(timezone.utc).strftime("%b %d, %Y at %H:%M UTC")
     try:
-        html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed, monthly_credits, monthly_refunds, monthly_net, monthly_collected_detail, churn_events)
+        html = render_html(rows, totals, active_tot, problem_tot, synced, metrics, today_invoices, monthly_collected, monthly_billed, monthly_credits, monthly_refunds, monthly_net, monthly_collected_detail, churn_events, receivables, receivables_total, receivables_by_status)
         with open("index.html", "w", encoding="utf-8") as f:
             f.write(html)
         print("  OK index.html written (" + f"{len(html):,}" + " bytes)")
